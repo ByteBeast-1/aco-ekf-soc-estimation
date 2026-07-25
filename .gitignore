@@ -1,0 +1,25 @@
+# MATLAB autosave / temp files
+*.asv
+*.autosave
+*~
+
+# MATLAB compiled/cache files
+*.mex*
+*.slxc
+codegen/
+
+# OS junk files
+.DS_Store
+Thumbs.db
+
+# Editor/IDE folders
+.vscode/
+.idea/
+
+# Large generated data (uncomment if your .mat files get big — otherwise
+# it's often fine, even useful, to keep small result .mat files in git)
+# *.mat
+
+# Keep generated plots out of git if you regenerate them from code anyway;
+# comment this out if you'd rather version-control the images themselves
+# results/plots/*.png
