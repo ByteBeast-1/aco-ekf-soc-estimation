@@ -1,135 +1,165 @@
 /**
  * @file bms_ekf.c
- * @brief Implementation of Automotive BMS Extended Kalman Filter (EKF) in ANSI C.
+ * @brief Production ANSI C Implementation of 3-State 2-RC Thermal EKF.
  */
 
 #include "bms_ekf.h"
 
-/* 8th-order OCV Polynomial Coefficients */
-static const float OCV_COEFFS[9] = {
-    -21.7497f,  82.2625f, -125.3296f,  99.6313f,
-    -44.5010f,  11.3416f,   -1.5825f,   1.5032f,   3.0130f
+static const float ocv_poly[9] = {
+    -21.7497f,  82.2625f, -125.3296f,  99.6313f, -44.5010f,  11.3416f,  -1.5825f,   1.5032f,   3.0130f
 };
 
-/* Derivative Polynomial Coefficients for dOCV/dSOC */
-static const float dOCV_COEFFS[8] = {
-    -173.9976f,  575.8375f, -751.9776f, 498.1565f,
-    -178.0040f,   34.0248f,   -3.1650f,   1.5032f
+static const float docv_poly[8] = {
+    -173.9976f, 575.8375f, -751.9776f, 498.1565f, -178.0040f,  34.0248f,  -3.1650f,   1.5032f
 };
 
-/* Helper: Clamp float to range */
-static inline float clampf(float val, float min_val, float max_val) {
-    if (val < min_val) return min_val;
-    if (val > max_val) return max_val;
+float BMS_ComputeOCV(float soc) {
+    if (soc < 0.0f) soc = 0.0f;
+    if (soc > 1.0f) soc = 1.0f;
+    float val = ocv_poly[0];
+    for (int i = 1; i < 9; i++) {
+        val = val * soc + ocv_poly[i];
+    }
     return val;
 }
 
-float BMS_Get_OCV(float soc) {
-    soc = clampf(soc, 0.0f, 1.0f);
-    float ocv = OCV_COEFFS[0];
-    for (int i = 1; i < 9; i++) {
-        ocv = ocv * soc + OCV_COEFFS[i];
-    }
-    return ocv;
-}
-
-float BMS_Get_dOCV_dSOC(float soc) {
-    soc = clampf(soc, 0.0f, 1.0f);
-    float docv = dOCV_COEFFS[0];
+float BMS_ComputedOCV(float soc) {
+    if (soc < 0.0f) soc = 0.0f;
+    if (soc > 1.0f) soc = 1.0f;
+    float val = docv_poly[0];
     for (int i = 1; i < 8; i++) {
-        docv = docv * soc + dOCV_COEFFS[i];
+        val = val * soc + docv_poly[i];
     }
-    return docv;
+    return val;
 }
 
-void BMS_EKF_Init(BMS_EKF_t *handle, const BMS_BatteryParams_t *params, const BMS_EKF_Config_t *config, float initial_soc) {
-    if (!handle || !params || !config) return;
+void BMS_EKF_Init(BMS_EKF_t *ekf, float init_soc, float temp_k) {
+    (void)temp_k;
+    ekf->params.R0_ref = 0.012f;
+    ekf->params.R1_ref = 0.008f;
+    ekf->params.C1     = 1500.0f;
+    ekf->params.R2_ref = 0.015f;
+    ekf->params.C2     = 12000.0f;
+    ekf->params.Qn     = 7200.0f;
+    ekf->params.eta    = 1.0f;
+    ekf->params.dt     = 1.0f;
+    ekf->params.Ea     = 18000.0f;
+    ekf->params.T_ref  = 298.15f;
 
-    handle->params = *params;
-    handle->config = *config;
+    ekf->config.q_SOC = 1.00e-7f;
+    ekf->config.q_V1  = 1.00e-7f;
+    ekf->config.q_V2  = 1.00e-7f;
+    ekf->config.r_V   = 2.455e-3f;
 
-    /* Pre-compute discrete RC decay & gain */
-    handle->a = expf(-params->dt / (params->R1 * params->C1));
-    handle->b = params->R1 * (1.0f - handle->a);
+    ekf->x_hat[0] = init_soc;
+    ekf->x_hat[1] = 0.0f;
+    ekf->x_hat[2] = 0.0f;
 
-    /* Initial state estimate [SOC, Vp] */
-    handle->x_hat[0] = clampf(initial_soc, 0.0f, 1.0f);
-    handle->x_hat[1] = 0.0f;
-
-    /* Initial Covariance Matrix P0 */
-    handle->P[0][0] = 0.01f;   /* 0.1^2 */
-    handle->P[0][1] = 0.0f;
-    handle->P[1][0] = 0.0f;
-    handle->P[1][1] = 0.0025f; /* 0.05^2 */
-
-    handle->is_initialized = 1;
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            ekf->P[i][j] = (i == j) ? ((i == 0) ? 0.01f : 0.0025f) : 0.0f;
+        }
+    }
+    ekf->is_initialized = 1;
 }
 
-float BMS_EKF_Update(BMS_EKF_t *handle, float current_A, float voltage_V) {
-    if (!handle || !handle->is_initialized) return 0.0f;
+void BMS_EKF_Step(BMS_EKF_t *ekf, float current_A, float voltage_meas_V, float temp_k, float *out_soc, float *out_v1, float *out_v2) {
+    if (!ekf->is_initialized) return;
 
-    float dt  = handle->params.dt;
-    float Qn  = handle->params.Qn;
-    float eta = handle->params.eta;
+    /* Thermal adaptation */
+    float tfactor = expf((ekf->params.Ea / 8.314f) * (1.0f / temp_k - 1.0f / ekf->params.T_ref));
+    float R0 = ekf->params.R0_ref * tfactor;
+    float R1 = ekf->params.R1_ref * tfactor;
+    float R2 = ekf->params.R2_ref * tfactor;
 
-    /* ── Step 1: Predict State x_pred ───────────────────────────────── */
-    float soc_pred = handle->x_hat[0] - (eta * current_A * dt) / Qn;
-    float vp_pred  = handle->a * handle->x_hat[1] + handle->b * current_A;
-    soc_pred = clampf(soc_pred, 0.0f, 1.0f);
+    float a1 = expf(-ekf->params.dt / (R1 * ekf->params.C1));
+    float b1 = R1 * (1.0f - a1);
+    float a2 = expf(-ekf->params.dt / (R2 * ekf->params.C2));
+    float b2 = R2 * (1.0f - a2);
 
-    /* ── Step 2: Predict Covariance P_pred = F * P * F^T + Q ────────── */
-    float a = handle->a;
-    float P_pred[2][2];
-    P_pred[0][0] = handle->P[0][0] + handle->config.q_SOC;
-    P_pred[0][1] = handle->P[0][1] * a;
-    P_pred[1][0] = handle->P[1][0] * a;
-    P_pred[1][1] = a * a * handle->P[1][1] + handle->config.q_Vp;
+    /* 1. Predict state */
+    float soc_p = ekf->x_hat[0] - (ekf->params.eta * current_A * ekf->params.dt) / ekf->params.Qn;
+    if (soc_p < 0.0f) soc_p = 0.0f;
+    if (soc_p > 1.0f) soc_p = 1.0f;
+    float v1_p = a1 * ekf->x_hat[1] + b1 * current_A;
+    float v2_p = a2 * ekf->x_hat[2] + b2 * current_A;
 
-    /* ── Step 3: Predict Measurement Vt_pred & Innovation r ─────────── */
-    float ocv_pred = BMS_Get_OCV(soc_pred);
-    float vt_pred  = ocv_pred - vp_pred - handle->params.R0 * current_A;
-    float r = voltage_V - vt_pred;  /* Innovation residual */
+    /* 2. Predict covariance P_pred = F * P * F^T + Q */
+    float F[3][3] = { {1.0f, 0.0f, 0.0f}, {0.0f, a1, 0.0f}, {0.0f, 0.0f, a2} };
+    float P_pred[3][3];
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            float sum = 0.0f;
+            for (int k = 0; k < 3; k++) {
+                for (int l = 0; l < 3; l++) {
+                    sum += F[i][k] * ekf->P[k][l] * F[j][l];
+                }
+            }
+            if (i == j) {
+                float q_val = (i == 0) ? ekf->config.q_SOC : ((i == 1) ? ekf->config.q_V1 : ekf->config.q_V2);
+                sum += q_val;
+            }
+            P_pred[i][j] = sum;
+        }
+    }
 
-    /* ── Step 4: Measurement Jacobian H & Innovation Covariance S ───── */
-    float docv = BMS_Get_dOCV_dSOC(soc_pred);
-    float H[2] = { docv, -1.0f };   /* 1x2 measurement Jacobian */
+    /* 3. Predict measurement */
+    float ocv = BMS_ComputeOCV(soc_p);
+    float v_pred = ocv - v1_p - v2_p - (R0 * current_A);
+    float residual = voltage_meas_V - v_pred;
 
-    /* S = H * P_pred * H^T + R */
-    float S = H[0] * (P_pred[0][0] * H[0] + P_pred[1][0] * H[1]) +
-              H[1] * (P_pred[0][1] * H[0] + P_pred[1][1] * H[1]) +
-              handle->config.r_V;
+    /* 4. Measurement Jacobian H = [docv, -1, -1] */
+    float dOCV = BMS_ComputedOCV(soc_p);
+    float H[3] = { dOCV, -1.0f, -1.0f };
 
-    if (fabsf(S) < 1e-9f) S = 1e-9f;
+    /* 5. Innovation covariance S = H * P_pred * H^T + R */
+    float S = ekf->config.r_V;
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            S += H[i] * P_pred[i][j] * H[j];
+        }
+    }
 
-    /* ── Step 5: Compute Kalman Gain K = (P_pred * H^T) / S ─────────── */
-    float K[2];
-    K[0] = (P_pred[0][0] * H[0] + P_pred[0][1] * H[1]) / S;
-    K[1] = (P_pred[1][0] * H[0] + P_pred[1][1] * H[1]) / S;
+    /* 6. Kalman gain K = (P_pred * H^T) / S */
+    float K[3];
+    for (int i = 0; i < 3; i++) {
+        float sum = 0.0f;
+        for (int j = 0; j < 3; j++) {
+            sum += P_pred[i][j] * H[j];
+        }
+        K[i] = sum / S;
+    }
 
-    /* ── Step 6: Correct State x_upd = x_pred + K * r ───────────────── */
-    handle->x_hat[0] = clampf(soc_pred + K[0] * r, 0.0f, 1.0f);
-    handle->x_hat[1] = vp_pred + K[1] * r;
+    /* 7. Correct State */
+    ekf->x_hat[0] = soc_p + K[0] * residual;
+    if (ekf->x_hat[0] < 0.0f) ekf->x_hat[0] = 0.0f;
+    if (ekf->x_hat[0] > 1.0f) ekf->x_hat[0] = 1.0f;
+    ekf->x_hat[1] = v1_p + K[1] * residual;
+    ekf->x_hat[2] = v2_p + K[2] * residual;
 
-    /* ── Step 7: Joseph-Form Covariance Correction ──────────────────── */
-    /* IKH = I - K*H */
-    float IKH[2][2];
-    IKH[0][0] = 1.0f - K[0] * H[0];
-    IKH[0][1] = -K[0] * H[1];
-    IKH[1][0] = -K[1] * H[0];
-    IKH[1][1] = 1.0f - K[1] * H[1];
+    /* 8. Joseph-Form Covariance Update P_upd = (I - K*H)*P_pred*(I - K*H)^T + K*R*K^T */
+    float IKH[3][3];
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            float eye_val = (i == j) ? 1.0f : 0.0f;
+            IKH[i][j] = eye_val - K[i] * H[j];
+        }
+    }
 
-    /* P_upd = IKH * P_pred * IKH^T + K * R * K^T */
-    float tmp[2][2];
-    tmp[0][0] = IKH[0][0] * P_pred[0][0] + IKH[0][1] * P_pred[1][0];
-    tmp[0][1] = IKH[0][0] * P_pred[0][1] + IKH[0][1] * P_pred[1][1];
-    tmp[1][0] = IKH[1][0] * P_pred[0][0] + IKH[1][1] * P_pred[1][0];
-    tmp[1][1] = IKH[1][0] * P_pred[0][1] + IKH[1][1] * P_pred[1][1];
+    for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+            float sum = 0.0f;
+            for (int k = 0; k < 3; k++) {
+                for (int l = 0; l < 3; l++) {
+                    sum += IKH[i][k] * P_pred[k][l] * IKH[j][l];
+                }
+            }
+            sum += K[i] * ekf->config.r_V * K[j];
+            ekf->P[i][j] = sum;
+        }
+    }
 
-    float R_val = handle->config.r_V;
-    handle->P[0][0] = tmp[0][0] * IKH[0][0] + tmp[0][1] * IKH[0][1] + K[0] * K[0] * R_val;
-    handle->P[0][1] = tmp[0][0] * IKH[1][0] + tmp[0][1] * IKH[1][1] + K[0] * K[1] * R_val;
-    handle->P[1][0] = tmp[1][0] * IKH[0][0] + tmp[1][1] * IKH[0][1] + K[1] * K[0] * R_val;
-    handle->P[1][1] = tmp[1][0] * IKH[1][0] + tmp[1][1] * IKH[1][1] + K[1] * K[1] * R_val;
-
-    return handle->x_hat[0];
+    if (out_soc) *out_soc = ekf->x_hat[0];
+    if (out_v1)  *out_v1  = ekf->x_hat[1];
+    if (out_v2)  *out_v2  = ekf->x_hat[2];
 }

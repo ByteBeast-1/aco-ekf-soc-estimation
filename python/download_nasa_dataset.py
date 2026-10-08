@@ -20,7 +20,7 @@ import numpy as np
 NASA_B0005_URL = "https://raw.githubusercontent.com/philipp-s/nasa-battery-dataset/main/B0005.csv"
 
 def download_nasa_b0005():
-    output_dir = os.path.join(os.path.dirname(__file__), "data")
+    output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "data")
     os.makedirs(output_dir, exist_ok=True)
     file_path = os.path.join(output_dir, "NASA_B0005.csv")
 

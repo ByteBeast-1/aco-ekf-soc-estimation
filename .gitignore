@@ -34,5 +34,17 @@ wheels/
 .DS_Store
 Thumbs.db
 
-# Nested folder duplicate backup
-aco-ekf-soc-estimation/
+# MATLAB/Simulink: the shared algorithm library must be tracked despite the generic "lib/" rule above
+!simulink_matlab/lib/
+# Simulink / MATLAB build caches (regenerated automatically)
+slprj/
+*.slxc
+*.autosave
+*.asv
+codegen/
+
+# Trained model weights (reproduced by python/main_ultimate.py)
+models/*.pth
+
+# Third-party copyrighted paper - keep local only
+docs/references/*.pdf
