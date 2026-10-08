@@ -1,447 +1,379 @@
-%% ACO-EKF Lithium-Ion Battery SOC Estimation Simulation (MATLAB)
-%  ========================================================================
-%  Description: Complete MATLAB implementation of the Ant Colony Optimized
-%               Extended Kalman Filter (ACO-EKF) for State of Charge (SOC)
-%               estimation of Lithium-Ion Batteries.
-%
-%  Modules included:
-%    1. First-Order RC Battery Model (Thevenin Equivalent Circuit)
-%    2. Extended Kalman Filter (EKF) with Joseph-Form Covariance Update
-%    3. Ant Colony Optimization for Continuous Domains (ACOR)
-%    4. Synthetic Battery Data Generator (4 Operating Profiles)
-%    5. Comparative Benchmarks & Performance Metrics (MSE, MAE, MAPE, R2)
-%    6. Automatic Publication-Quality Plotting
-%  ========================================================================
-
 function run_aco_ekf_simulation()
+% RUN_ACO_EKF_SIMULATION
+% 2-RC Thermal MO-ACO-EKF Battery SOC Estimation — MATLAB Standalone Runner
+% Generates 6 publication-grade figures for faculty presentation.
     clc; close all;
+
     fprintf('=================================================================\n');
-    fprintf('  ACO-EKF Lithium-Ion Battery SOC Estimation (MATLAB)\n');
+    fprintf('  2-RC Thermal MO-ACO-EKF | Battery SOC Estimation\n');
     fprintf('=================================================================\n\n');
 
-    % -------------------------------------------------------------------
-    % Configuration & Hyperparameters
-    % -------------------------------------------------------------------
-    cfg.R0  = 0.015;      % Series resistance [Ohm]
-    cfg.R1  = 0.010;      % Polarization resistance [Ohm]
-    cfg.C1  = 3000.0;     % Polarization capacitance [F]
-    cfg.Qn  = 7200.0;     % Nominal capacity [A*s] (2 Ah)
-    cfg.eta = 1.0;        % Coulombic efficiency
-    cfg.dt  = 1.0;        % Sampling time [s]
+    %% Configuration
+    cfg = get_config();
 
-    % ACO settings
-    cfg.aco_k_archive = 20;   % Archive size
-    cfg.aco_n_ants    = 8;    % Ants per iteration
-    cfg.aco_max_iter  = 30;   % Max iterations
-    cfg.aco_q         = 0.1;  % Diversity parameter
-    cfg.aco_xi        = 0.85; % Locality parameter
+    %% Step 1: Generate 4 drive profiles
+    fprintf('[1/4] Generating drive profiles...\n');
+    profiles = generate_profiles(cfg);
 
-    % ACO search bounds (log10 scale: [q_SOC, q_Vp, r_V])
-    cfg.aco_bounds = [-7, -2; -7, -2; -5, -1];
+    %% Step 2: Run MO-ACOR optimizer
+    fprintf('[2/4] Running MO-ACOR optimizer (%d ants, %d iterations)...\n', ...
+        cfg.n_ants, cfg.n_iter);
+    [Q_opt, R_opt, aco_hist] = run_mo_acor(profiles{3}, cfg);
+    fprintf('      Q* = %.3e  |  R* = %.4e\n', Q_opt(1,1), R_opt);
 
-    % Conventional EKF default covariances
-    cfg.q_soc_default = 1e-5;
-    cfg.q_vp_default  = 1e-5;
-    cfg.r_v_default   = 1e-3;
-
-    % Initial SOC uncertainty & error (+10% initial error)
-    cfg.P0 = diag([0.10^2, 0.05^2]);
-    cfg.soc_init_error = 0.10;
-
-    % -------------------------------------------------------------------
-    % Step 1: Initialize Battery Model
-    % -------------------------------------------------------------------
-    fprintf('[1/5] Building First-Order RC Battery Model...\n');
-    model = create_battery_model(cfg);
-
-    % -------------------------------------------------------------------
-    % Step 2: Generate Operating Profiles
-    % -------------------------------------------------------------------
-    fprintf('[2/5] Generating 4 Battery Operating Profiles...\n');
-    datasets = generate_profiles(model);
-
-    % -------------------------------------------------------------------
-    % Step 3: Run ACO Optimization
-    % -------------------------------------------------------------------
-    fprintf('[3/5] Running Ant Colony Optimization (ACOR) for Q and R...\n');
-    train_ds = datasets(1:2); % Use CC Discharge and Pulse for training
-    [best_params, best_mse, conv_curve] = run_acor(cfg, model, train_ds);
-
-    q_soc_opt = best_params(1);
-    q_vp_opt  = best_params(2);
-    r_v_opt   = best_params(3);
-
-    Q_opt = diag([q_soc_opt, q_vp_opt]);
-    R_opt = r_v_opt;
-
-    Q_conv = diag([cfg.q_soc_default, cfg.q_vp_default]);
-    R_conv = cfg.r_v_default;
-
-    fprintf('\n      ACO Optimization Completed!\n');
-    fprintf('      Optimal Q = diag([%.3e, %.3e])\n', q_soc_opt, q_vp_opt);
-    fprintf('      Optimal R = %.3e\n', r_v_opt);
-    fprintf('      Best Training MSE = %.6f\n\n', best_mse);
-
-    % -------------------------------------------------------------------
-    % Step 4: Benchmarking & Performance Evaluation
-    % -------------------------------------------------------------------
-    fprintf('[4/5] Evaluating ACO-EKF vs Conventional EKF on all profiles...\n\n');
-    
-    results = struct();
-    for p = 1:length(datasets)
-        ds = datasets(p);
-        soc_init = min(max(ds.soc0 + cfg.soc_init_error * sign(0.5 - ds.soc0), 0.02), 0.98);
-
-        soc_aco  = run_ekf(model, Q_opt,  R_opt,  cfg.P0, ds.current_meas, ds.voltage_meas, soc_init);
-        soc_conv = run_ekf(model, Q_conv, R_conv, cfg.P0, ds.current_meas, ds.voltage_meas, soc_init);
-
-        results(p).name         = ds.name;
-        results(p).time         = ds.time;
-        results(p).soc_ref      = ds.soc_ref;
-        results(p).soc_aco      = soc_aco;
-        results(p).soc_conv     = soc_conv;
-        results(p).current_true = ds.current_true;
-        results(p).current_meas = ds.current_meas;
-        results(p).voltage_true = ds.voltage_true;
-        results(p).voltage_meas = ds.voltage_meas;
+    %% Step 3: Run EKF on all 4 profiles
+    fprintf('[3/4] Running 3-State Joseph-Form EKF on 4 profiles...\n');
+    results = cell(4,1);
+    for p = 1:4
+        results{p} = run_ekf(profiles{p}, Q_opt, R_opt, cfg);
+        fprintf('      [%s]  MAE=%.4f%%  RMSE=%.4f%%\n', ...
+            profiles{p}.name, results{p}.mae, results{p}.rmse);
     end
 
-    % Print Performance Metrics Table
-    fprintf('---------------------------------------------------------------------------\n');
-    fprintf('%-26s %-16s %10s %10s %10s %8s\n', 'Profile', 'Method', 'MSE', 'MAE (%)', 'MAPE (%)', 'R2');
-    fprintf('---------------------------------------------------------------------------\n');
+    %% Step 4: Plot 6 professional figures
+    fprintf('[4/4] Plotting figures...\n\n');
+    plot_figures(profiles, results, aco_hist, Q_opt, R_opt);
 
-    for p = 1:length(results)
-        m_conv = compute_metrics(results(p).soc_conv, results(p).soc_ref);
-        m_aco  = compute_metrics(results(p).soc_aco,  results(p).soc_ref);
-
-        fprintf('  %-24s %-16s %10.6f %10.4f %10.4f %8.4f\n', results(p).name, 'Conv. EKF', m_conv.MSE, m_conv.MAE, m_conv.MAPE, m_conv.R2);
-        fprintf('  %-24s %-16s %10.6f %10.4f %10.4f %8.4f\n', results(p).name, 'ACO-EKF',   m_aco.MSE,  m_aco.MAE,  m_aco.MAPE,  m_aco.R2);
-        fprintf('\n');
-    end
-    fprintf('---------------------------------------------------------------------------\n\n');
-
-    % -------------------------------------------------------------------
-    % Step 5: Render Plots
-    % -------------------------------------------------------------------
-    fprintf('[5/5] Generating MATLAB Visualizations...\n');
-    render_plots(results, conv_curve);
-    fprintf('\n=================================================================\n');
-    fprintf('  Simulation Complete! Figures displayed.\n');
+    fprintf('=================================================================\n');
+    fprintf('  Complete! Q*=%.2e | R*=%.4e\n', Q_opt(1,1), R_opt);
     fprintf('=================================================================\n');
 end
 
-% =========================================================================
-% Battery Model Functions
-% =========================================================================
-function model = create_battery_model(cfg)
-    model.R0  = cfg.R0;
-    model.R1  = cfg.R1;
-    model.C1  = cfg.C1;
-    model.Qn  = cfg.Qn;
-    model.eta = cfg.eta;
-    model.dt  = cfg.dt;
-
-    model.a = exp(-cfg.dt / (cfg.R1 * cfg.C1));
-    model.b = cfg.R1 * (1.0 - model.a);
-
-    % OCV Polynomial Coefficients (8th order)
-    model.ocv_poly = [-21.7497, 82.2625, -125.3296, 99.6313, -44.5010, 11.3416, -1.5825, 1.5032, 3.0130];
-    model.docv_poly = polyder(model.ocv_poly);
+%% ====================================================================
+function cfg = get_config()
+    cfg.R0  = 0.012; cfg.R1  = 0.008; cfg.R2  = 0.015;
+    cfg.C1  = 1500;  cfg.C2  = 12000;
+    cfg.Qn  = 7200;  cfg.dt  = 1.0;
+    cfg.Ea  = 18000; cfg.T0  = 298.15;
+    cfg.sv  = 0.008; % voltage sensor noise std [V]
+    cfg.ocv = [-21.7497, 82.2625, -125.3296, 99.6313, ...
+               -44.5010,  11.3416,  -1.5825,  1.5032, 3.0130];
+    cfg.P0      = diag([0.01, 0.0025, 0.0025]);
+    cfg.n_ants  = 20;
+    cfg.n_iter  = 30;
+    cfg.K       = 20;
+    cfg.q_aco   = 0.1;
+    cfg.xi      = 0.85;
+    cfg.bounds  = [-8,-5; -8,-5; -8,-5; -5,-2];  % [4 x 2] log10 bounds
 end
 
-function ocv = get_ocv(model, soc)
-    soc = min(max(soc, 0.0), 1.0);
-    ocv = polyval(model.ocv_poly, soc);
+%% ====================================================================
+function profiles = generate_profiles(cfg)
+    dt = cfg.dt;
+
+    % Profile 1: Constant Current — Highway Cruise 0.5C
+    N1 = 3600; t1 = (0:N1-1)*dt;
+    I1 = ones(1,N1);
+    T1 = linspace(297.15, 310.15, N1);
+    [Vt1, S1] = sim_plant(I1, T1, 0.95, cfg);
+    profiles{1} = make_prof('CC Highway', t1, I1, Vt1 + cfg.sv*randn(1,N1), Vt1, S1, T1, 0.95);
+
+    % Profile 2: Pulse Discharge — Stop-Start City
+    N2 = 2400; t2 = (0:N2-1)*dt;
+    I2 = zeros(1,N2);
+    for k=1:N2; if mod(t2(k),90)<60; I2(k)=2.0; end; end
+    T2 = linspace(297.15, 306.15, N2);
+    [Vt2, S2] = sim_plant(I2, T2, 0.90, cfg);
+    profiles{2} = make_prof('Pulse City', t2, I2, Vt2 + cfg.sv*randn(1,N2), Vt2, S2, T2, 0.90);
+
+    % Profile 3: Dynamic UDDS — Urban Drive Cycle
+    N3 = 1800; t3 = (0:N3-1)*dt;
+    I3 = abs(1.0 + 0.8*sin(2*pi*t3/200) + 1.2*(sin(2*pi*t3/35)>0.3));
+    I3 = min(max(I3,0), 3.5);
+    T3 = linspace(297.15, 312.15, N3);
+    [Vt3, S3] = sim_plant(I3, T3, 0.85, cfg);
+    profiles{3} = make_prof('UDDS Dynamic', t3, I3, Vt3 + 0.010*randn(1,N3), Vt3, S3, T3, 0.85);
+
+    % Profile 4: CCCV Fast Charge
+    N4 = 3600; t4 = (0:N4-1)*dt;
+    I4 = zeros(1,N4);
+    for k=1:N4
+        s = 0.20 + k/(N4*1.2);
+        if s < 0.80; I4(k) = -2.0; else; I4(k) = -(2.0*(1-s)/0.20); end
+    end
+    T4 = 297.15*ones(1,N4);
+    [Vt4, S4] = sim_plant(I4, T4, 0.20, cfg);
+    profiles{4} = make_prof('CCCV Charge', t4, I4, Vt4 + 0.006*randn(1,N4), Vt4, S4, T4, 0.20);
 end
 
-function docv = get_docv(model, soc)
-    soc = min(max(soc, 0.0), 1.0);
-    docv = polyval(model.docv_poly, soc);
+function p = make_prof(name, t, I, Vm, Vt, S, T, soc0)
+    p.name = name; p.t = t; p.I = I;
+    p.V_meas = Vm; p.V_true = Vt;
+    p.SOC_ref = S; p.Temp = T; p.soc0 = soc0;
 end
 
-function x_next = state_transition(model, x, I)
-    soc_next = x(1) - (model.eta * I * model.dt) / model.Qn;
-    vp_next  = model.a * x(2) + model.b * I;
-    x_next   = [min(max(soc_next, 0.0), 1.0); vp_next];
-end
-
-function vt = terminal_voltage(model, x, I)
-    vt = get_ocv(model, x(1)) - x(2) - model.R0 * I;
-end
-
-function F = state_jacobian(model)
-    F = [1.0, 0.0; 0.0, model.a];
-end
-
-function H = measurement_jacobian(model, soc)
-    H = [get_docv(model, soc), -1.0];
-end
-
-% =========================================================================
-% EKF Core Implementation
-% =========================================================================
-function soc_est = run_ekf(model, Q, R, P0, currents, voltages, soc0)
-    N = length(currents);
-    soc_est = zeros(N, 1);
-
-    x_hat = [soc0; 0.0];
-    P     = P0;
-    I_mat = eye(2);
-
+%% ====================================================================
+function [Vt, S] = sim_plant(I, T, soc0, cfg)
+    N = length(I); Vt = zeros(1,N); S = zeros(1,N);
+    x = [soc0; 0; 0];
     for k = 1:N
-        I_k  = currents(k);
-        Vt_m = voltages(k);
-
-        % Predict
-        x_pred = state_transition(model, x_hat, I_k);
-        F      = state_jacobian(model);
-        P_pred = F * P * F' + Q;
-
-        % Innovate
-        Vt_pred = terminal_voltage(model, x_pred, I_k);
-        r_k     = Vt_m - Vt_pred;
-
-        % Gain
-        H = measurement_jacobian(model, x_pred(1));
-        S = H * P_pred * H' + R;
-        K = (P_pred * H') / S;
-
-        % Correct
-        x_upd    = x_pred + K * r_k;
-        x_upd(1) = min(max(x_upd(1), 0.0), 1.0);
-
-        % Joseph Form Covariance Update
-        IKH   = I_mat - K * H;
-        P_upd = IKH * P_pred * IKH' + (K * R * K');
-
-        x_hat = x_upd;
-        P     = P_upd;
-
-        soc_est(k) = x_hat(1);
+        S(k)  = x(1);
+        Vt(k) = vt_eq(x, I(k), T(k), cfg);
+        x     = step_x(x, I(k), T(k), cfg);
     end
 end
 
-% =========================================================================
-% Ant Colony Optimizer (ACOR)
-% =========================================================================
-function [best_params, best_mse, conv_curve] = run_acor(cfg, model, train_ds)
-    k = cfg.aco_k_archive;
-    n_ants = cfg.aco_n_ants;
-    max_iter = cfg.aco_max_iter;
+function x = step_x(x, I, Tk, cfg)
+    [~,R1,R2] = Rarr(Tk,cfg);
+    a1=exp(-cfg.dt/(R1*cfg.C1)); b1=R1*(1-a1);
+    a2=exp(-cfg.dt/(R2*cfg.C2)); b2=R2*(1-a2);
+    x = [min(max(x(1)-(I*cfg.dt)/cfg.Qn,0),1); a1*x(2)+b1*I; a2*x(3)+b2*I];
+end
 
-    bounds = cfg.aco_bounds;
-    n_dim  = size(bounds, 1);
+function v = vt_eq(x, I, Tk, cfg)
+    [R0,~,~] = Rarr(Tk,cfg);
+    v = polyval(cfg.ocv, min(max(x(1),0),1)) - x(2) - x(3) - R0*I;
+end
 
-    % Initial Random Archive
-    archive_log = zeros(k, n_dim);
-    archive_obj = zeros(k, 1);
+function [R0,R1,R2] = Rarr(Tk, cfg)
+    tf = exp((cfg.Ea/8.314)*(1/Tk - 1/cfg.T0));
+    R0=cfg.R0*tf; R1=cfg.R1*tf; R2=cfg.R2*tf;
+end
 
-    for i = 1:k
-        archive_log(i, :) = bounds(:, 1)' + rand(1, n_dim) .* (bounds(:, 2)' - bounds(:, 1)');
-        archive_obj(i)    = eval_objective(archive_log(i, :), model, train_ds, cfg);
-    end
-
-    [archive_obj, order] = sort(archive_obj);
-    archive_log          = archive_log(order, :);
-
-    best_log = archive_log(1, :);
-    best_mse = archive_obj(1);
-    conv_curve = zeros(max_iter, 1);
-
-    % Rank Weights
-    ranks = (1:k)';
-    w = exp(-(ranks - 1).^2 ./ (2 * cfg.aco_q^2 * k^2));
-    w = w / sum(w);
-
-    for iter = 1:max_iter
-        % Compute Sigma
-        sigma = zeros(k, n_dim);
-        for l = 1:k
-            diff_m = abs(archive_log - archive_log(l, :));
-            sigma(l, :) = cfg.aco_xi / (k - 1) * sum(diff_m, 1);
+%% ====================================================================
+function [Q_opt, R_opt, hist] = run_mo_acor(prof, cfg)
+    K=cfg.K; n=cfg.n_ants; nd=4; lam=0.5;
+    bnd=cfg.bounds;
+    arc = bnd(:,1)' + rand(K,nd) .* (bnd(:,2)-bnd(:,1))';
+    afit = arrayfun(@(i) fitness(arc(i,:),prof,cfg,lam), 1:K)';
+    [afit,ix] = sort(afit); arc = arc(ix,:);
+    hist = zeros(1,cfg.n_iter);
+    for it = 1:cfg.n_iter
+        rk = (1:K)';
+        w  = exp(-((rk-1).^2)/(2*(cfg.q_aco*K)^2));
+        w  = w/sum(w); cp = cumsum(w);
+        ns = zeros(n,nd); nf = zeros(n,1);
+        for a = 1:n
+            ki = find(cp>=rand(),1); if isempty(ki); ki=K; end
+            s  = zeros(1,nd);
+            for d=1:nd
+                sg = cfg.xi*sum(abs(arc(:,d)-arc(ki,d)))/(K-1+eps);
+                s(d) = max(bnd(d,1), min(bnd(d,2), arc(ki,d)+sg*randn()));
+            end
+            ns(a,:) = s; nf(a) = fitness(s,prof,cfg,lam);
         end
-        sigma = max(sigma, 1e-6);
-
-        % Ant Sampling
-        new_log = zeros(n_ants, n_dim);
-        new_obj = zeros(n_ants, 1);
-
-        for ant = 1:n_ants
-            % Choose Kernel (Base MATLAB weighted sampling without toolboxes)
-            cum_w = cumsum(w);
-            r = rand();
-            idx = find(r <= cum_w, 1, 'first');
-            if isempty(idx), idx = k; end
-            cand = archive_log(idx, :) + randn(1, n_dim) .* sigma(idx, :);
-
-            % Clip to Bounds
-            cand = min(max(cand, bounds(:, 1)'), bounds(:, 2)');
-            new_log(ant, :) = cand;
-            new_obj(ant)    = eval_objective(cand, model, train_ds, cfg);
-        end
-
-        % Merge & Select Top k
-        comb_log = [archive_log; new_log];
-        comb_obj = [archive_obj; new_obj];
-
-        [comb_obj, order] = sort(comb_obj);
-        archive_log = comb_log(order(1:k), :);
-        archive_obj = comb_obj(1:k);
-
-        if archive_obj(1) < best_mse
-            best_mse = archive_obj(1);
-            best_log = archive_log(1, :);
-        end
-
-        conv_curve(iter) = best_mse;
-
-        if mod(iter, 5) == 0 || iter == 1
-            p_lin = 10.^best_log;
-            fprintf('  [ACO] Iter %2d/%2d | Best MSE = %.6f | Q_soc=%.2e, R=%.2e\n', ...
-                iter, max_iter, best_mse, p_lin(1), p_lin(3));
-        end
+        all_s = [arc;ns]; all_f = [afit;nf];
+        [all_f,ix] = sort(all_f);
+        arc = all_s(ix(1:K),:); afit = all_f(1:K);
+        hist(it) = afit(1);
     end
-
-    best_params = 10.^best_log;
+    b=arc(1,:);
+    Q_opt = diag([10^b(1), 10^b(2), 10^b(3)]);
+    R_opt = 10^b(4);
 end
 
-function mse_avg = eval_objective(candidate_log, model, train_ds, cfg)
-    params = 10.^candidate_log;
-    Q = diag([params(1), params(2)]);
-    R = params(3);
-
-    mses = zeros(length(train_ds), 1);
-    for p = 1:length(train_ds)
-        ds = train_ds(p);
-        soc_init = min(max(ds.soc0 + cfg.soc_init_error * sign(0.5 - ds.soc0), 0.02), 0.98);
-        soc_est = run_ekf(model, Q, R, cfg.P0, ds.current_meas, ds.voltage_meas, soc_init);
-        mses(p) = mean((soc_est - ds.soc_ref).^2);
+function f = fitness(lp, prof, cfg, lam)
+    Q=diag([10^lp(1),10^lp(2),10^lp(3)]); R=10^lp(4);
+    N=length(prof.t); x=[prof.soc0-0.10;0;0]; P=cfg.P0;
+    se=zeros(1,N); conv_k=N;
+    for k=1:N
+        [~,R1,R2]=Rarr(prof.Temp(k),cfg);
+        a1=exp(-cfg.dt/(R1*cfg.C1)); a2=exp(-cfg.dt/(R2*cfg.C2));
+        F=diag([1,a1,a2]);
+        xp=step_x(x,prof.I(k),prof.Temp(k),cfg);
+        Pp=F*P*F'+Q;
+        vp=vt_eq(xp,prof.I(k),prof.Temp(k),cfg);
+        dp=polyder(cfg.ocv); H=[polyval(dp,min(max(xp(1),0),1)),-1,-1];
+        Sk=H*Pp*H'+R; Kk=(Pp*H')/Sk;
+        xu=xp+Kk*(prof.V_meas(k)-vp); xu(1)=min(max(xu(1),0),1);
+        P=(eye(3)-Kk*H)*Pp*(eye(3)-Kk*H)'+Kk*R*Kk'; x=xu;
+        se(k)=x(1);
+        if abs(se(k)-prof.SOC_ref(k))<0.02 && conv_k==N; conv_k=k; end
     end
-    mse_avg = mean(mses);
+    f = mean((se-prof.SOC_ref).^2) + lam*(conv_k*cfg.dt/3600);
 end
 
-% =========================================================================
-% Synthetic Data Generator
-% =========================================================================
-function datasets = generate_profiles(model)
-    % 1. CC Discharge
-    N1 = 1800; I1 = 0.5 * (model.Qn/3600) * ones(N1, 1);
-    sim1 = sim_profile(model, I1, 0.95);
-    ds1.name = 'CC Discharge 0.5C'; ds1.time = (0:N1-1)'*model.dt;
-    ds1.current_true = I1; ds1.current_meas = I1 + 0.005*(model.Qn/3600)*randn(N1, 1);
-    ds1.voltage_true = sim1.vt; ds1.voltage_meas = sim1.vt + 0.005*randn(N1, 1);
-    ds1.soc_ref = sim1.soc; ds1.soc0 = 0.95;
-
-    % 2. Pulse Discharge
-    cycle = [ones(30,1)*(model.Qn/3600); zeros(30,1)];
-    I2 = repmat(cycle, 20, 1); N2 = length(I2);
-    sim2 = sim_profile(model, I2, 0.90);
-    ds2.name = 'Pulse Discharge 1C'; ds2.time = (0:N2-1)'*model.dt;
-    ds2.current_true = I2; ds2.current_meas = I2 + 0.008*(model.Qn/3600)*randn(N2, 1);
-    ds2.voltage_true = sim2.vt; ds2.voltage_meas = sim2.vt + 0.005*randn(N2, 1);
-    ds2.soc_ref = sim2.soc; ds2.soc0 = 0.90;
-
-    % 3. Dynamic Drive Cycle
-    N3 = 1800; I3 = zeros(N3, 1); k = 1;
-    while k <= N3
-        len = randi([15, 90]); end_k = min(k + len - 1, N3);
-        type = rand();
-        if type < 0.3, amp = (0.8 + 0.7*rand())*(model.Qn/3600);
-        elseif type < 0.75, amp = (0.2 + 0.5*rand())*(model.Qn/3600);
-        else, amp = 0.0; end
-        I3(k:end_k) = amp; k = end_k + 1;
+%% ====================================================================
+function res = run_ekf(prof, Q_opt, R_opt, cfg)
+    N=length(prof.t);
+    se=zeros(1,N); eV=zeros(1,N); ie=zeros(1,N); pt=zeros(1,N);
+    x=[prof.soc0-0.10;0;0]; P=cfg.P0;
+    for k=1:N
+        [~,R1,R2]=Rarr(prof.Temp(k),cfg);
+        a1=exp(-cfg.dt/(R1*cfg.C1)); a2=exp(-cfg.dt/(R2*cfg.C2));
+        F=diag([1,a1,a2]);
+        xp=step_x(x,prof.I(k),prof.Temp(k),cfg);
+        Pp=F*P*F'+Q_opt;
+        vp=vt_eq(xp,prof.I(k),prof.Temp(k),cfg);
+        ie(k)=prof.V_meas(k)-vp; eV(k)=vp;
+        dp=polyder(cfg.ocv); H=[polyval(dp,min(max(xp(1),0),1)),-1,-1];
+        Sk=H*Pp*H'+R_opt; Kk=(Pp*H')/Sk;
+        xu=xp+Kk*ie(k); xu(1)=min(max(xu(1),0),1);
+        P=(eye(3)-Kk*H)*Pp*(eye(3)-Kk*H)'+Kk*R_opt*Kk'; x=xu;
+        se(k)=x(1); pt(k)=trace(P);
     end
-    sim3 = sim_profile(model, I3, 0.85);
-    ds3.name = 'Dynamic Drive Cycle'; ds3.time = (0:N3-1)'*model.dt;
-    ds3.current_true = I3; ds3.current_meas = I3 + 0.01*(model.Qn/3600)*randn(N3, 1);
-    ds3.voltage_true = sim3.vt; ds3.voltage_meas = sim3.vt + 0.005*randn(N3, 1);
-    ds3.soc_ref = sim3.soc; ds3.soc0 = 0.85;
-
-    % 4. CCCV Charge
-    I_cc = -0.5 * (model.Qn/3600); soc = 0.20; vp = 0.0; x = [soc; vp];
-    curr4 = []; vt4 = []; soc4 = [];
-    for t = 1:3000
-        vt = terminal_voltage(model, x, I_cc);
-        curr4 = [curr4; I_cc]; vt4 = [vt4; vt]; soc4 = [soc4; x(1)];
-        if vt >= 4.18 || x(1) >= 0.99, break; end
-        x = state_transition(model, x, I_cc);
-    end
-    taper = exp(-(0:1799)'/300.0);
-    for t = 1:length(taper)
-        I_cv = I_cc * taper(t); vt = terminal_voltage(model, x, I_cv);
-        curr4 = [curr4; I_cv]; vt4 = [vt4; vt]; soc4 = [soc4; x(1)];
-        if abs(I_cv) < 0.02*(model.Qn/3600), break; end
-        x = state_transition(model, x, I_cv);
-    end
-    N4 = length(curr4);
-    ds4.name = 'CCCV Charge 0.5C'; ds4.time = (0:N4-1)'*model.dt;
-    ds4.current_true = curr4; ds4.current_meas = curr4 + 0.005*(model.Qn/3600)*randn(N4, 1);
-    ds4.voltage_true = vt4; ds4.voltage_meas = vt4 + 0.005*randn(N4, 1);
-    ds4.soc_ref = soc4; ds4.soc0 = 0.20;
-
-    datasets = [ds1, ds2, ds3, ds4];
+    err = (se - prof.SOC_ref)*100;
+    res.se  = se; res.eV = eV; res.ie = ie; res.pt = pt;
+    res.mae = mean(abs(err)); res.rmse = sqrt(mean(err.^2)); res.maxe = max(abs(err));
 end
 
-function sim = sim_profile(model, I, soc0)
-    N = length(I); soc = zeros(N, 1); vp = zeros(N, 1); vt = zeros(N, 1);
-    x = [soc0; 0.0];
-    for k = 1:N
-        vt(k) = terminal_voltage(model, x, I(k));
-        x = state_transition(model, x, I(k));
-        soc(k) = x(1); vp(k) = x(2);
+%% ====================================================================
+%  PUBLICATION-GRADE FIGURES
+%% ====================================================================
+function plot_figures(profiles, results, aco_hist, Q_opt, R_opt)
+
+    % Color palette — consistent across all figures
+    C_true  = [0.15, 0.45, 0.80];   % Blue
+    C_est   = [0.90, 0.25, 0.25];   % Red
+    C_noisy = [0.60, 0.80, 0.95];   % Light blue
+    C_err   = [0.20, 0.65, 0.35];   % Green
+    C_aco   = [0.70, 0.20, 0.80];   % Purple
+
+    set(0, 'DefaultAxesFontName',  'Helvetica');
+    set(0, 'DefaultTextFontName',  'Helvetica');
+    set(0, 'DefaultAxesFontSize',  11);
+    set(0, 'DefaultLineLineWidth', 1.6);
+
+    %% ----------------------------------------------------------------
+    %  FIGURE 1 — SOC Tracking: True vs Estimated (4 profiles)
+    %% ----------------------------------------------------------------
+    fig1 = figure('Name','SOC Tracking','NumberTitle','off', ...
+        'Position',[60,60,1380,780], 'Color','w');
+    sgtitle(sprintf('SOC Tracking — 2-RC Thermal MO-ACO-EKF    |    Q* = %.1e   R* = %.4e', ...
+        Q_opt(1,1), R_opt), 'FontSize', 14, 'FontWeight', 'bold');
+
+    profile_titles = {'CC Discharge — Highway Cruise 0.5C', ...
+                      'Pulse Discharge — Stop-Start City', ...
+                      'UDDS — Dynamic Urban Drive Cycle', ...
+                      'CCCV — Fast Charging Profile'};
+
+    for p = 1:4
+        ax = subplot(2,2,p);
+        t  = profiles{p}.t;
+        sr = profiles{p}.SOC_ref * 100;
+        se = results{p}.se * 100;
+        plot(t, sr, '-',  'Color', C_true, 'LineWidth', 2.0, 'DisplayName', 'True SOC'); hold on;
+        plot(t, se, '--', 'Color', C_est,  'LineWidth', 1.6, 'DisplayName', 'EKF Estimated SOC');
+        xlabel('Time (s)'); ylabel('SOC (%)');
+        title(sprintf('%s\nMAE = %.4f%%  |  RMSE = %.4f%%', ...
+            profile_titles{p}, results{p}.mae, results{p}.rmse), 'FontSize', 10.5);
+        legend('Location','best','FontSize',9.5);
+        grid on; box on;
+        ylim([max(0,min(sr)-4), min(100,max(sr)+4)]);
+        set(ax,'GridAlpha',0.25,'GridLineStyle','--');
     end
-    sim.soc = soc; sim.vp = vp; sim.vt = vt;
-end
 
-% =========================================================================
-% Performance Metrics
-% =========================================================================
-function m = compute_metrics(soc_est, soc_ref)
-    err = soc_est - soc_ref;
-    m.MSE = mean(err.^2);
-    m.MAE = mean(abs(err)) * 100;
-    m.MAPE = mean(abs(err(soc_ref > 0.01) ./ soc_ref(soc_ref > 0.01))) * 100;
-    ss_res = sum(err.^2); ss_tot = sum((soc_ref - mean(soc_ref)).^2);
-    m.R2 = 1.0 - (ss_res / (ss_tot + 1e-12));
-end
+    %% ----------------------------------------------------------------
+    %  FIGURE 2 — SOC Error Over Time (4 profiles)
+    %% ----------------------------------------------------------------
+    figure('Name','SOC Error','NumberTitle','off', ...
+        'Position',[80,80,1380,780], 'Color','w');
+    sgtitle('SOC Estimation Error  (EKF − True SOC)', ...
+        'FontSize',14,'FontWeight','bold');
 
-% =========================================================================
-% Plotting Functions
-% =========================================================================
-function render_plots(results, conv_curve)
-    % 1. SOC Comparison Plot
-    figure('Name', 'SOC Estimation Comparison', 'NumberTitle', 'off', 'Color', [1 1 1]);
-    for p = 1:length(results)
-        subplot(2, 2, p);
-        t_min = results(p).time / 60;
-        plot(t_min, results(p).soc_ref*100, 'b-', 'LineWidth', 1.8); hold on;
-        plot(t_min, results(p).soc_conv*100, 'r--', 'LineWidth', 1.2);
-        plot(t_min, results(p).soc_aco*100, 'g-.', 'LineWidth', 1.5);
-        grid on; xlabel('Time (min)'); ylabel('SOC (%)');
-        title(results(p).name, 'FontWeight', 'bold');
-        legend('Reference SOC', 'Conv. EKF', 'ACO-EKF', 'Location', 'best');
+    for p = 1:4
+        ax = subplot(2,2,p);
+        t   = profiles{p}.t;
+        err = (results{p}.se - profiles{p}.SOC_ref) * 100;
+        fill([t, fliplr(t)], [err, zeros(1,length(t))], C_err, ...
+            'FaceAlpha', 0.25, 'EdgeColor', 'none'); hold on;
+        plot(t, err, '-', 'Color', C_err*0.7, 'LineWidth', 1.4);
+        yline(0,   'k--', 'LineWidth', 1.0);
+        yline(+0.5,'r:',  'LineWidth', 0.9);
+        yline(-0.5,'r:',  'LineWidth', 0.9);
+        xlabel('Time (s)'); ylabel('Error (%)');
+        title(sprintf('%s\nRMSE = %.4f%%   MaxError = %.4f%%', ...
+            profile_titles{p}, results{p}.rmse, results{p}.maxe), 'FontSize', 10.5);
+        ylim([-1.5, 1.5]); grid on; box on;
+        set(ax,'GridAlpha',0.25,'GridLineStyle','--');
     end
-    sgtitle('State of Charge (SOC) Estimation: ACO-EKF vs Conv. EKF');
 
-    % 2. Absolute Error Plot
-    figure('Name', 'Absolute SOC Error', 'NumberTitle', 'off', 'Color', [1 1 1]);
-    for p = 1:length(results)
-        subplot(2, 2, p);
-        t_min = results(p).time / 60;
-        err_conv = abs(results(p).soc_conv - results(p).soc_ref)*100;
-        err_aco  = abs(results(p).soc_aco  - results(p).soc_ref)*100;
-        plot(t_min, err_conv, 'r-', 'LineWidth', 1.2); hold on;
-        plot(t_min, err_aco,  'g-', 'LineWidth', 1.5);
-        grid on; xlabel('Time (min)'); ylabel('|Error| (%)');
-        title(results(p).name, 'FontWeight', 'bold');
-        legend('Conv. EKF Error', 'ACO-EKF Error', 'Location', 'best');
+    %% ----------------------------------------------------------------
+    %  FIGURE 3 — Voltage Tracking (Profile 3: UDDS)
+    %% ----------------------------------------------------------------
+    p = 3;
+    figure('Name','Voltage Tracking','NumberTitle','off', ...
+        'Position',[100,100,1200,500], 'Color','w');
+    t = profiles{p}.t;
+    plot(t, profiles{p}.V_meas,  '-', 'Color', C_noisy, 'LineWidth', 0.8, ...
+        'DisplayName', 'V_{meas}  (±8 mV noise)'); hold on;
+    plot(t, profiles{p}.V_true,  '-', 'Color', C_true,  'LineWidth', 2.0, ...
+        'DisplayName', 'True Voltage V_t');
+    plot(t, results{p}.eV,       '--','Color', C_est,   'LineWidth', 1.6, ...
+        'DisplayName', 'EKF Estimated Voltage');
+    xlabel('Time (s)'); ylabel('Terminal Voltage (V)');
+    title(sprintf('Voltage Tracking — Profile: %s  |  Sensor Noise ±8 mV  |  EKF vs True', ...
+        profiles{p}.name), 'FontSize', 12, 'FontWeight', 'bold');
+    legend('Location','best','FontSize',10); grid on; box on;
+    set(gca,'GridAlpha',0.25,'GridLineStyle','--');
+
+    %% ----------------------------------------------------------------
+    %  FIGURE 4 — Drive Profile + Thermal Transient (Profile 3)
+    %% ----------------------------------------------------------------
+    p = 3;
+    figure('Name','Drive Profile + Temperature','NumberTitle','off', ...
+        'Position',[120,120,1200,580], 'Color','w');
+
+    subplot(2,1,1);
+    t = profiles{p}.t;
+    area(t, profiles{p}.I, 'FaceColor', C_true, 'FaceAlpha', 0.4, 'EdgeColor', C_true);
+    xlabel('Time (s)'); ylabel('Current  I  (A)');
+    title(sprintf('Drive Cycle: %s — NET CURRENT (I)', profiles{p}.name), 'FontSize',11,'FontWeight','bold');
+    grid on; box on; set(gca,'GridAlpha',0.25,'GridLineStyle','--');
+
+    subplot(2,1,2);
+    T_C = profiles{p}.Temp - 273.15;
+    plot(t, T_C, '-', 'Color', [0.85, 0.35, 0.10], 'LineWidth', 2.0);
+    xlabel('Time (s)'); ylabel('Temperature  T  (°C)');
+    title(sprintf('Cell Self-Heating: %.1f °C  →  %.1f °C  (Arrhenius Thermal Model)', T_C(1), T_C(end)), ...
+        'FontSize',11,'FontWeight','bold');
+    grid on; box on; set(gca,'GridAlpha',0.25,'GridLineStyle','--');
+    sgtitle('Thermal Operating Conditions', 'FontSize',13,'FontWeight','bold');
+
+    %% ----------------------------------------------------------------
+    %  FIGURE 5 — MO-ACOR Convergence Curve
+    %% ----------------------------------------------------------------
+    figure('Name','MO-ACOR Convergence','NumberTitle','off', ...
+        'Position',[140,140,900,470], 'Color','w');
+    iters = 1:length(aco_hist);
+    semilogy(iters, aco_hist, 'o-', 'Color', C_aco, 'LineWidth', 2.0, ...
+        'MarkerSize', 5, 'MarkerFaceColor', C_aco);
+    xlabel('ACO Iteration'); ylabel('Multi-Objective Fitness  (log scale)');
+    title(sprintf('MO-ACOR Swarm Convergence  |  %d Ants  |  %d Iterations\nConverged: Q* = %.2e   R* = %.4e', ...
+        20, length(aco_hist), Q_opt(1,1), R_opt), 'FontSize', 12, 'FontWeight', 'bold');
+    grid on; box on;
+    set(gca,'GridAlpha',0.25,'GridLineStyle','--');
+    text(length(aco_hist)*0.55, aco_hist(end)*4, ...
+        sprintf('\\bfOptimal Q*\\rm = %.2e\n\\bfOptimal R*\\rm = %.4e', Q_opt(1,1), R_opt), ...
+        'FontSize', 10.5, 'BackgroundColor', [0.96,0.96,1.0], ...
+        'EdgeColor', [0.7,0.7,0.8], 'Margin', 6);
+
+    %% ----------------------------------------------------------------
+    %  FIGURE 6 — Benchmark Summary: MAE + RMSE Bar Chart
+    %% ----------------------------------------------------------------
+    figure('Name','Benchmark Summary','NumberTitle','off', ...
+        'Position',[160,160,1000,520], 'Color','w');
+
+    maes  = [results{1}.mae,  results{2}.mae,  results{3}.mae,  results{4}.mae];
+    rmses = [results{1}.rmse, results{2}.rmse, results{3}.rmse, results{4}.rmse];
+    xlbls = {'CC Highway', 'Pulse City', 'UDDS Dynamic', 'CCCV Charge'};
+
+    b = bar([maes; rmses]', 'grouped');
+    b(1).FaceColor = C_true; b(1).EdgeColor = 'none';
+    b(2).FaceColor = C_est;  b(2).EdgeColor = 'none';
+
+    set(gca, 'XTickLabel', xlbls, 'FontSize', 11);
+    ylabel('Error  (%)');
+    title(sprintf('Benchmark: MAE & RMSE Across 4 Drive Profiles\n2-RC Thermal MO-ACO-EKF  |  Q* = %.2e   R* = %.4e', ...
+        Q_opt(1,1), R_opt), 'FontSize', 12, 'FontWeight', 'bold');
+    legend('MAE (%)', 'RMSE (%)', 'Location', 'northeast', 'FontSize', 10.5);
+    grid on; box on;
+    set(gca, 'GridAlpha', 0.25, 'GridLineStyle', '--', 'YGrid', 'on', 'XGrid', 'off');
+
+    % Value labels
+    for i = 1:4
+        text(i - 0.15, maes(i)  + max(maes)*0.04,  sprintf('%.4f', maes(i)),  ...
+            'HorizontalAlignment','center','FontSize',9,'FontWeight','bold','Color',C_true*0.7);
+        text(i + 0.15, rmses(i) + max(rmses)*0.04, sprintf('%.4f', rmses(i)), ...
+            'HorizontalAlignment','center','FontSize',9,'Color',C_est*0.7);
     end
-    sgtitle('Absolute SOC Estimation Error (%)');
 
-    % 3. ACO Convergence Curve
-    figure('Name', 'ACO Convergence', 'NumberTitle', 'off', 'Color', [1 1 1]);
-    semilogy(1:length(conv_curve), conv_curve, '-o', 'Color', [0.2 0.6 0.2], 'LineWidth', 1.8);
-    grid on; xlabel('ACO Iteration'); ylabel('Best Training MSE');
-    title('Ant Colony Optimization (ACOR) Convergence Curve', 'FontWeight', 'bold');
+    % Print summary table
+    fprintf('\n  %-22s  %8s  %8s  %8s\n', 'Profile', 'MAE %', 'RMSE %', 'MaxErr %');
+    fprintf('  %s\n', repmat('-', 52, 1));
+    for p = 1:4
+        fprintf('  %-22s  %8.4f  %8.4f  %8.4f\n', ...
+            profiles{p}.name, results{p}.mae, results{p}.rmse, results{p}.maxe);
+    end
+    fprintf('\n');
 end
