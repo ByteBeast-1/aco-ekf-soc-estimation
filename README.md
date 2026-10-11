@@ -44,13 +44,14 @@ aco-ekf-soc-estimation/
 │   ├── lib/                         #   Shared algorithm library (plant, sensors, EKF, ACO tuner, NASA loader)
 │   ├── build_bms_models.m           #   Regenerates both models from lib/
 │   ├── run_simulink.m, run_sota_simulink.m, plot_simulink_results.m
-│   ├── run_bms_regression.m         #   22-check automated verification suite
+│   ├── run_bms_regression.m         #   33-check automated verification suite
 │   ├── run_aco_ekf_simulation.m     #   Standalone MATLAB simulation (no Simulink needed)
 │   └── results/                     #   Regression CSV + block-diagram snapshots
 │
 ├── c_firmware/                      # Embedded ANSI C firmware (<2 KB RAM)
-│   ├── bms_ekf.h, bms_ekf.c
-│   └── main_test.c
+│   ├── bms_ekf.h, bms_ekf.c     #   EKF + diagnostics, mirrors lib/bms_est_step.m
+│   ├── main_test.c, sil/        #   smoke test, software-in-the-loop driver
+│   └── README.md
 │
 ├── data/                            # Processed datasets used by the Python scripts (see data/README.md)
 ├── data_raw/                        # Official NASA Ames B0005/B0006/B0007 .mat files (real cell data)
@@ -58,6 +59,7 @@ aco-ekf-soc-estimation/
 ├── figures/                         # Publication-ready PNG figures (00-16)
 ├── tools/                           # Helper scripts that draw the architecture diagrams
 ├── docs/                            # Technical documentation
+│   ├── Complete_Project_Guide.md    #   START HERE: full explanation, every block, the maths and derivations, results
 │   ├── Simulink_Upgrade.md, system_design.md, complete_project_documentation.md, ...
 │   ├── presentation/                #   Mid-review slides (LaTeX + PowerPoint)
 │   └── references/                  #   Research blueprint (base paper PDF kept local, git-ignored)
