@@ -10,9 +10,14 @@ function ok = run_bms_regression(opts)
 %     3. Fault injection: current offset, voltage glitches, thermistor open-circuit
 %     4. Real NASA data: out-of-sample cells (B0005, B0007, aged B0006); tuning/calibration used B0006 #1/#60 only
 %     5. Ablation      : which adaptation features help (bit-mask modes)
+%     0. Model quality : no dangling ports, strict diagnostics, bus/unit/dictionary consistency
+%     6. Precision     : estimator in 32-bit float (the firmware's arithmetic) versus 64-bit double
+%     7. SIL           : compiled C firmware versus the MATLAB float32 estimator on identical measurements
+%   Options: struct('simulink', false) skips suites 0 and 1; struct('sil', false) skips suite 7.
 %   Results -> results/bms_regression_results.csv and figures/15_*.png
     if nargin < 1,  opts = struct();  end
     if ~isfield(opts, 'simulink'),  opts.simulink = true;  end
+    if ~isfield(opts, 'sil'),       opts.sil = true;       end
     here = fileparts(mfilename('fullpath'));
     addpath(here);  addpath(fullfile(here, 'lib'));
     outdir = fullfile(here, 'results');  if ~isfolder(outdir),  mkdir(outdir);  end
@@ -26,6 +31,11 @@ function ok = run_bms_regression(opts)
     TH.nasa_any_mae   = 6.5;      % [%] any unseen cycle (aged cells included)
     TH.nasa_charge_mae = 5.0;     % [%] fresh real charge cycles
     TH.soh_err        = 0.10;     % mean |capacity-ratio error| of the online SOH estimate
+    TH.prec_dsoc      = 0.10;     % [%]  worst |SOC float32 - SOC float64|
+    TH.prec_dv_mV     = 1.0;      % [mV] worst |V_est float32 - V_est float64|
+    TH.sil_dsoc       = 0.002;    % [%]  worst |SOC C firmware - SOC MATLAB float32|
+    TH.sil_dv_mV      = 1.0;      % [mV] worst predicted-voltage difference
+    TH.sil_ptrace_rel = 1e-3;     % relative difference of trace(P)
     skip = 120;                   % convergence window excluded from metrics [s]
 
     rows = {};  checks = {};
@@ -59,6 +69,18 @@ function ok = run_bms_regression(opts)
         check('sota_bms_aco_ekf: capacity-state SOC == library', e3 < TH.b2b_tol, sprintf('max diff %.2e %%', e3));
         check('sota_bms_aco_ekf: capacity ratio == library', e4 < 1e-9, sprintf('max diff %.2e', e4));
         bdclose('sota_bms_aco_ekf');
+
+        fprintf('\n== 0. Model quality (structure, interfaces, diagnostics) ==\n');
+        n_un = 0;  strict_ok = true;
+        for mname = {'advanced_bms_aco_ekf', 'sota_bms_aco_ekf'}
+            [nu, so_] = model_quality(mname{1});
+            n_un = n_un + nu;  strict_ok = strict_ok && so_;
+        end
+        check('Models: no unconnected ports', n_un == 0, sprintf('%d unconnected ports in both models', n_un));
+        check('Models: strict diagnostics are errors (dangling ports/lines, algebraic loops, bus mismatch)', strict_ok, 'all enabled');
+        dq = dictionary_quality();
+        check('Data dictionary: every bus element has a description and physical ones a unit', dq.units_ok, sprintf('%d elements checked', dq.n_elements));
+        check('Data dictionary: tuned Q and R equal lib/bms_tuned_data.m', dq.params_ok, sprintf('max difference %.1e', dq.param_diff));
     end
 
     %% ---- 2. Monte Carlo ------------------------------------------------------
@@ -189,6 +211,41 @@ function ok = run_bms_regression(opts)
         rows(end + 1, :) = {'ablation', mlabel{j}, abl(1, j), abl(2, j), NaN, NaN}; %#ok<AGROW>
     end
 
+    %% ---- 6. Precision: float32 (firmware arithmetic) vs float64 --------------------------------
+    fprintf('\n== 6. Estimator in 32-bit float vs 64-bit double (identical measurements) ==\n');
+    PR = bms_precision_study(true);
+    for i = 1:height(PR.T)
+        rows(end + 1, :) = {'precision', PR.T.scenario{i}, PR.T.max_dsoc(i), PR.T.max_dv_mV(i), PR.T.mae_d(i), PR.T.mae_s(i)}; %#ok<AGROW>
+    end
+    check('float32 vs float64: worst SOC difference', PR.worst_dsoc < TH.prec_dsoc, sprintf('%.4f %% < %.2f', PR.worst_dsoc, TH.prec_dsoc));
+    check('float32 vs float64: worst voltage difference', PR.worst_dv_mV < TH.prec_dv_mV, sprintf('%.3f mV < %.1f', PR.worst_dv_mV, TH.prec_dv_mV));
+    check('float32 vs float64: identical diagnostics, no NaN or Inf', PR.all_flags_equal && PR.all_finite, 'every scenario');
+
+    %% ---- 7. SIL: compiled C firmware vs MATLAB float32 ----------------------------------------------
+    if opts.sil
+        fprintf('\n== 7. Software-in-the-loop: C firmware (compiled) vs MATLAB float32 ==\n');
+        Ps = bms_params('synthetic');  [Iu, s0u] = bms_profile('udds');  sil = [];
+        for fm = [0 2 3]
+            scs_ = struct('I', Iu, 'soc0', s0u, 'init_err', -0.10, 'seed', 5, 'fault_mode', fm);
+            sil = [sil, bms_sil_run(Ps, scs_, sprintf('sim udds fault %d', fm))]; %#ok<AGROW>
+        end
+        silcases = {{'B0005', 1, 'discharge', -0.15}, {'B0007', 120, 'discharge', -0.15}, {'B0005', 1, 'charge', 0.15}};
+        for i = 1:numel(silcases)
+            r_ = silcases{i};  scn_ = bms_replay_scenario(r_{1}, r_{2}, r_{4}, r_{3});
+            sil = [sil, bms_sil_run(Pn, scn_, scn_.name)]; %#ok<AGROW>
+        end
+        fprintf('  %-24s %6s %11s %11s %12s %7s %8s\n', 'scenario', 'N', 'dSOC %', 'dV mV', 'dP rel', 'flags=', 'flagged');
+        for i = 1:numel(sil)
+            fprintf('  %-24s %6d %11.6f %11.5f %12.2e %7d %8d\n', sil(i).name, sil(i).n, sil(i).max_dsoc, sil(i).max_dv_mV, ...
+                sil(i).max_dptrace_rel, sil(i).flags_equal, sil(i).n_flagged);
+            rows(end + 1, :) = {'sil', sil(i).name, sil(i).max_dsoc, sil(i).max_dv_mV, sil(i).max_dptrace_rel, sil(i).flags_equal}; %#ok<AGROW>
+        end
+        check('C firmware vs MATLAB float32: SOC', max([sil.max_dsoc]) < TH.sil_dsoc, sprintf('worst %.5f %% < %.3f', max([sil.max_dsoc]), TH.sil_dsoc));
+        check('C firmware vs MATLAB float32: predicted voltage', max([sil.max_dv_mV]) < TH.sil_dv_mV, sprintf('worst %.3f mV < %.1f', max([sil.max_dv_mV]), TH.sil_dv_mV));
+        check('C firmware vs MATLAB float32: covariance trace', max([sil.max_dptrace_rel]) < TH.sil_ptrace_rel, sprintf('worst %.1e < %.0e', max([sil.max_dptrace_rel]), TH.sil_ptrace_rel));
+        check('C firmware vs MATLAB float32: diagnostic codes identical', all([sil.flags_equal]), sprintf('%d flagged samples compared', sum([sil.n_flagged])));
+    end
+
     %% ---- report -------------------------------------------------------------------------------------
     T = cell2table(rows, 'VariableNames', {'suite', 'case', 'v1', 'v2', 'v3', 'v4'});
     writetable(T, fullfile(outdir, 'bms_regression_results.csv'));
@@ -199,6 +256,43 @@ function ok = run_bms_regression(opts)
     fprintf('\n====================================================\n');
     fprintf('  %d / %d checks passed  ->  %s\n', nnz(passed), numel(passed), ternary(ok, 'ALL PASS', 'FAILURES PRESENT'));
     fprintf('====================================================\n');
+end
+
+function [n_un, strict_ok] = model_quality(m)
+    load_system(m);
+    ports = find_system(m, 'FindAll', 'on', 'SearchDepth', 1, 'Type', 'port');
+    n_un = 0;
+    for p = ports(:)'
+        if get_param(p, 'Line') == -1,  n_un = n_un + 1;  end
+    end
+    keys = {'UnconnectedInputMsg', 'UnconnectedOutputMsg', 'UnconnectedLineMsg', 'AlgebraicLoopMsg', 'BusObjectLabelMismatch'};
+    strict_ok = true;
+    for i = 1:numel(keys)
+        strict_ok = strict_ok && strcmp(get_param(m, keys{i}), 'error');
+    end
+    strict_ok = strict_ok && strcmp(get_param(m, 'StrictBusMsg'), 'ErrorOnBusTreatedAsVector');
+    bdclose(m);
+end
+
+function q = dictionary_quality()
+    here = fileparts(mfilename('fullpath'));
+    dd  = Simulink.data.dictionary.open(fullfile(here, 'bms_data.sldd'));
+    sec = getSection(dd, 'Design Data');
+    physical = {'SOC_pct', 'Voltage_V', 'Current_A', 'Temperature_K', 'Innovation_V', 'R0_Ohm', 'SOC_Coulomb_pct'};
+    q.units_ok = true;  q.n_elements = 0;
+    for b = {'BMS_PlantTruth', 'BMS_Measurement', 'BMS_Estimate'}
+        bus = getValue(getEntry(sec, b{1}));
+        for el = bus.Elements(:)'
+            q.n_elements = q.n_elements + 1;
+            if isempty(el.Description),  q.units_ok = false;  end
+            if any(strcmp(physical, el.Name)) && isempty(el.Unit),  q.units_ok = false;  end
+        end
+    end
+    Ps = bms_params('synthetic');  Pn = bms_params('nasa');
+    d = [max(abs(getValue(getEntry(sec, 'BMS_Q')).Value(:) - Ps.Q(:))), abs(getValue(getEntry(sec, 'BMS_R')).Value - Ps.R), ...
+         max(abs(getValue(getEntry(sec, 'NASA_Q')).Value(:) - Pn.Q(:))), abs(getValue(getEntry(sec, 'NASA_R')).Value - Pn.R)];
+    q.param_diff = max(d);  q.params_ok = q.param_diff < 1e-15;
+    close(dd);
 end
 
 function s = ternary(c, a, b)

@@ -1,14 +1,18 @@
 function build_bms_models(which)
 %BUILD_BMS_MODELS Programmatically (re)build the BMS Simulink models from the shared library.
-%   build_bms_models()            builds both models
+%   build_bms_models()            builds the data dictionary and both models
 %   build_bms_models('synthetic') advanced_bms_aco_ekf : simulated plant + sensors (+ fault injection) + EKF
 %   build_bms_models('nasa')      sota_bms_aco_ekf     : replay of REAL NASA cell data, EKF vs adaptive EKF
 %
 %   All algorithm code lives in lib/*.m (real files, unit-testable, codegen-ready). The MATLAB Function
 %   blocks are thin wrappers, so the model, the test-bench and the C firmware share one algorithm.
+%   Signals between blocks travel on bus objects (BMS_PlantTruth, BMS_Measurement, BMS_Estimate) defined,
+%   with units, in bms_data.sldd. Strict diagnostics make dangling ports, algebraic loops and bus
+%   mismatches build errors.
     if nargin < 1,  which = 'all';  end
     here = fileparts(mfilename('fullpath'));
     addpath(here);  addpath(fullfile(here, 'lib'));
+    bms_build_dictionary();
     if any(strcmp(which, {'all', 'synthetic'})),  build_synthetic(here);  end
     if any(strcmp(which, {'all', 'nasa'})),       build_nasa(here);       end
 end
@@ -31,52 +35,61 @@ function build_synthetic(here)
     const(m, 'ACO_Q_diag',        'BMS_Q',         [40 470 150 495]);
     const(m, 'ACO_R',             'BMS_R',         [40 530 150 555]);
 
-    % --- plant -> sensors -> estimator ------------------------------------
-    mfb(m, 'Battery_Physics_Plant', [260 130 420 260], plant_code('synthetic'),  [0.80 0.90 1.00]);
-    mfb(m, 'Sensor_Measurement',    [500 130 660 290], sensor_code('synthetic'), [1.00 0.90 0.75]);
-    mfb(m, 'ACO_EKF_Controller',    [760 130 960 400], ctrl_code('synthetic', 0, 'ACO_EKF_Controller'), [0.80 1.00 0.80]);
+    % --- plant -> sensors -> estimator, connected by buses --------------------------
+    mfb(m, 'Battery_Physics_Plant', [260 130 420 260], plant_code('synthetic'),  [0.80 0.90 1.00], ...
+        {'truth', 'BMS_PlantTruth'});
+    mfb(m, 'Sensor_Measurement',    [500 130 660 290], sensor_code('synthetic'), [1.00 0.90 0.75], ...
+        {'truth', 'BMS_PlantTruth', 'meas', 'BMS_Measurement'});
+    mfb(m, 'ACO_EKF_Controller',    [760 130 960 400], ctrl_code('synthetic', 0, 'ACO_EKF_Controller'), [0.80 1.00 0.80], ...
+        {'meas', 'BMS_Measurement', 'est', 'BMS_Estimate'});
 
     ln(m, 'Drive_Cycle_Current/1',  'Battery_Physics_Plant/1');
     ln(m, 'Initial_SOC_True/1',     'Battery_Physics_Plant/2');
-    ln(m, 'Battery_Physics_Plant/2','Sensor_Measurement/1');
-    ln(m, 'Drive_Cycle_Current/1',  'Sensor_Measurement/2');
-    ln(m, 'Battery_Physics_Plant/3','Sensor_Measurement/3');
-    ln(m, 'Fault_Mode/1',           'Sensor_Measurement/4');
-    ln(m, 'Noise_Seed/1',           'Sensor_Measurement/5');
-    ln(m, 'Sensor_Measurement/2',   'ACO_EKF_Controller/1');   % I_meas
-    ln(m, 'Sensor_Measurement/1',   'ACO_EKF_Controller/2');   % V_meas
-    ln(m, 'Sensor_Measurement/3',   'ACO_EKF_Controller/3');   % T_meas
-    ln(m, 'ACO_Q_diag/1',           'ACO_EKF_Controller/4');
-    ln(m, 'ACO_R/1',                'ACO_EKF_Controller/5');
-    ln(m, 'Initial_SOC_Guess/1',    'ACO_EKF_Controller/6');
+    ln(m, 'Battery_Physics_Plant/1','Sensor_Measurement/1');     % truth bus
+    ln(m, 'Drive_Cycle_Current/1',  'Sensor_Measurement/2');     % raw current
+    ln(m, 'Fault_Mode/1',           'Sensor_Measurement/3');
+    ln(m, 'Noise_Seed/1',           'Sensor_Measurement/4');
+    ln(m, 'Sensor_Measurement/1',   'ACO_EKF_Controller/1');     % measurement bus
+    ln(m, 'ACO_Q_diag/1',           'ACO_EKF_Controller/2');
+    ln(m, 'ACO_R/1',                'ACO_EKF_Controller/3');
+    ln(m, 'Initial_SOC_Guess/1',    'ACO_EKF_Controller/4');
+
+    % --- bus selectors: pick signals off the buses ---------------------------------
+    TR = {'SOC_pct', 'Voltage_V', 'Temperature_K'};
+    MS = {'Voltage_V'};
+    ES = {'SOC_pct', 'SOC_Coulomb_pct', 'Voltage_V', 'Innovation_V', 'PTrace', 'NIS', 'FaultCode'};
+    bsel(m, 'BS_Truth',    'Battery_Physics_Plant/1', TR, [1000 520 1005 570]);
+    bsel(m, 'BS_Measured', 'Sensor_Measurement/1',    MS, [1000 600 1005 630]);
+    bsel(m, 'BS_Estimate', 'ACO_EKF_Controller/1',    ES, [1000 100 1005 280]);
+    t  = @(s) sig('BS_Truth', TR, s);
+    me = @(s) sig('BS_Measured', MS, s);
+    e  = @(s) sig('BS_Estimate', ES, s);
 
     % --- scopes ---------------------------------------------------------------
-    % controller outs: 1 SOC 2 Vest 3 Innov 4 Ptrace 5 NIS 6 Fault 7 R0 8 SOC_CC 9 R
     x0 = 1100;
-    mux_scope(m, 'SOC_Comparison_Scope', {'Battery_Physics_Plant/1', 'ACO_EKF_Controller/1', 'ACO_EKF_Controller/8'}, ...
+    mux_scope(m, 'SOC_Comparison_Scope', {t('SOC_pct'), e('SOC_pct'), e('SOC_Coulomb_pct')}, ...
         [x0 40], 'True SOC | EKF SOC | Coulomb counting');
-    sub_scope(m, 'SOC_Error_Scope', 'ACO_EKF_Controller/1', 'Battery_Physics_Plant/1', [x0 120], 'EKF - True [%]');
-    mux_scope(m, 'Voltage_Tracking_Scope', {'Battery_Physics_Plant/2', 'Sensor_Measurement/1', 'ACO_EKF_Controller/2'}, ...
+    sub_scope(m, 'SOC_Error_Scope', e('SOC_pct'), t('SOC_pct'), [x0 120], 'EKF - True [%]');
+    mux_scope(m, 'Voltage_Tracking_Scope', {t('Voltage_V'), me('Voltage_V'), e('Voltage_V')}, ...
         [x0 200], 'True V | Measured V | EKF predicted V');
-    scope(m, 'EKF_Covariance_Scope', 'ACO_EKF_Controller/4', [x0 280], 'trace(P)');
-    scope(m, 'Innovation_NIS_Scope', 'ACO_EKF_Controller/5', [x0 340], 'Normalised innovation squared (expect ~1)');
-    scope(m, 'Diagnostic_Fault_Code_Scope', 'ACO_EKF_Controller/6', [x0 400], ...
+    scope(m, 'EKF_Covariance_Scope', e('PTrace'), [x0 280], 'trace(P)');
+    scope(m, 'Innovation_NIS_Scope', e('NIS'), [x0 340], 'Normalised innovation squared (expect ~1)');
+    scope(m, 'Diagnostic_Fault_Code_Scope', e('FaultCode'), [x0 400], ...
         '1 V range | 2 T range | 4 I range | 8 innovation rejected | 16 filter inconsistent');
     scope(m, 'Drive_Current_Scope', 'Drive_Cycle_Current/1', [x0 460], 'Current [A]');
-    scope(m, 'Temperature_Scope', 'Battery_Physics_Plant/3', [x0 520], 'Cell temperature [K]');
+    scope(m, 'Temperature_Scope', t('Temperature_K'), [x0 520], 'Cell temperature [K]');
 
     add_block('simulink/Sinks/Display', [m '/Live_SOC_Display'], 'Position', [x0 + 230 40 x0 + 310 70]);
-    ln(m, 'ACO_EKF_Controller/1', 'Live_SOC_Display/1');
+    ln(m, e('SOC_pct'), 'Live_SOC_Display/1');
 
-    % --- machine-readable log for the test bench ----------------------------------
-    names = {'Battery_Physics_Plant/1', 'ACO_EKF_Controller/1', 'ACO_EKF_Controller/8', 'Battery_Physics_Plant/2', ...
-             'Sensor_Measurement/1', 'ACO_EKF_Controller/2', 'ACO_EKF_Controller/3', 'ACO_EKF_Controller/4', ...
-             'ACO_EKF_Controller/5', 'ACO_EKF_Controller/6', 'Battery_Physics_Plant/3'};
+    % --- machine-readable log for the test bench (11 columns, order is part of the interface) -----
+    names = {t('SOC_pct'), e('SOC_pct'), e('SOC_Coulomb_pct'), t('Voltage_V'), me('Voltage_V'), e('Voltage_V'), ...
+             e('Innovation_V'), e('PTrace'), e('NIS'), e('FaultCode'), t('Temperature_K')};
     logger(m, names, [x0 600]);
 
     note(m, ['Advanced BMS: 2-RC thermal plant (with parameter mismatch) -> noisy/faultable sensors -> ' ...
-             'ACO-tuned 3-state Joseph EKF with diagnostics. Algorithms: lib/bms_*.m. ' ...
-             'Scenario variables are set by bms_setup (InitFcn) and can be overridden with Simulink.SimulationInput.'], [40 30]);
+             'ACO-tuned 3-state Joseph EKF with diagnostics. Algorithms: lib/bms_*.m. Signal interfaces: bus objects in ' ...
+             'bms_data.sldd. Scenario variables are set by bms_setup (InitFcn) and can be overridden with Simulink.SimulationInput.'], [40 30]);
     finish(m, here);
 end
 
@@ -97,41 +110,57 @@ function build_nasa(here)
     const(m, 'Initial_SOC_Guess', 'NASA_SOC_Guess', [40 290 150 315]);
     const(m, 'ACO_Q_diag',        'NASA_Q',         [40 350 150 375]);
     const(m, 'ACO_R',             'NASA_R',         [40 410 150 435]);
-
-    % Demux: 1 current, 2 measured voltage, 3 temperature [K], 4 reference SOC
-    mfb(m, 'EKF_Baseline',   [400 120 600 340], ctrl_code('nasa', 0, 'EKF_Baseline'), [0.80 1.00 0.80]);
-    mfb(m, 'SOTA_Adaptive_Controller', [400 380 600 600], ctrl_code('nasa', 2, 'SOTA_Adaptive_Controller'), [0.95 0.80 1.00]);
-    mfb(m, 'SOH_Capacity_Estimator', [400 640 600 860], ctrl_code('nasa', 10, 'SOH_Capacity_Estimator'), [1.00 0.95 0.75]);
     const(m, 'True_Capacity_Ratio', 'NASA_CapRatio', [40 470 150 495]);
+
+    % Demux: 1 current, 2 measured voltage, 3 temperature [K], 4 reference SOC -> measurement bus
+    add_block('simulink/Signal Routing/Bus Creator', [m '/Measurement_Bus'], 'Inputs', '3', ...
+        'UseBusObject', 'on', 'BusObject', 'BMS_Measurement', 'Position', [300 120 305 180]);
+    lnn(m, 'Demux_Replay/2', 'Measurement_Bus/1', 'Voltage_V');
+    lnn(m, 'Demux_Replay/1', 'Measurement_Bus/2', 'Current_A');
+    lnn(m, 'Demux_Replay/3', 'Measurement_Bus/3', 'Temperature_K');
+
+    mfb(m, 'EKF_Baseline',   [400 120 600 340], ctrl_code('nasa', 0, 'EKF_Baseline'), [0.80 1.00 0.80], ...
+        {'meas', 'BMS_Measurement', 'est', 'BMS_Estimate'});
+    mfb(m, 'SOTA_Adaptive_Controller', [400 380 600 600], ctrl_code('nasa', 2, 'SOTA_Adaptive_Controller'), [0.95 0.80 1.00], ...
+        {'meas', 'BMS_Measurement', 'est', 'BMS_Estimate'});
+    mfb(m, 'SOH_Capacity_Estimator', [400 640 600 860], ctrl_code('nasa', 10, 'SOH_Capacity_Estimator'), [1.00 0.95 0.75], ...
+        {'meas', 'BMS_Measurement', 'est', 'BMS_Estimate'});
     for c = {'EKF_Baseline', 'SOTA_Adaptive_Controller', 'SOH_Capacity_Estimator'}
-        ln(m, 'Demux_Replay/1', [c{1} '/1']);
-        ln(m, 'Demux_Replay/2', [c{1} '/2']);
-        ln(m, 'Demux_Replay/3', [c{1} '/3']);
-        ln(m, 'ACO_Q_diag/1',        [c{1} '/4']);
-        ln(m, 'ACO_R/1',             [c{1} '/5']);
-        ln(m, 'Initial_SOC_Guess/1', [c{1} '/6']);
+        ln(m, 'Measurement_Bus/1',   [c{1} '/1']);
+        ln(m, 'ACO_Q_diag/1',        [c{1} '/2']);
+        ln(m, 'ACO_R/1',             [c{1} '/3']);
+        ln(m, 'Initial_SOC_Guess/1', [c{1} '/4']);
     end
 
+    EK = {'SOC_pct', 'SOC_Coulomb_pct'};
+    SA = {'SOC_pct', 'Voltage_V', 'Innovation_V', 'NIS', 'FaultCode', 'R0_Ohm', 'R_cov_V2'};
+    SH = {'SOC_pct', 'CapacityRatio'};
+    bsel(m, 'BS_Baseline', 'EKF_Baseline/1',             EK, [680 150 685 190]);
+    bsel(m, 'BS_Adaptive', 'SOTA_Adaptive_Controller/1', SA, [680 400 685 540]);
+    bsel(m, 'BS_Capacity', 'SOH_Capacity_Estimator/1',   SH, [680 680 685 720]);
+    eb = @(s) sig('BS_Baseline', EK, s);
+    ea = @(s) sig('BS_Adaptive', SA, s);
+    es = @(s) sig('BS_Capacity', SH, s);
+
     x0 = 800;
-    mux_scope(m, 'SOC_Comparison_Scope', {'Ref_SOC_Percent/1', 'EKF_Baseline/1', 'SOTA_Adaptive_Controller/1', 'EKF_Baseline/8', 'SOH_Capacity_Estimator/1'}, ...
+    mux_scope(m, 'SOC_Comparison_Scope', {'Ref_SOC_Percent/1', eb('SOC_pct'), ea('SOC_pct'), eb('SOC_Coulomb_pct'), es('SOC_pct')}, ...
         [x0 40], 'Reference SOC | EKF | Adaptive EKF | Coulomb counting | EKF+capacity state');
-    mux_sub(m, 'SOC_Error_Scope', {'EKF_Baseline/1', 'SOTA_Adaptive_Controller/1', 'SOH_Capacity_Estimator/1'}, 'Ref_SOC_Percent/1', [x0 120], ...
+    mux_sub(m, 'SOC_Error_Scope', {eb('SOC_pct'), ea('SOC_pct'), es('SOC_pct')}, 'Ref_SOC_Percent/1', [x0 120], ...
         'EKF error | Adaptive EKF error | EKF+capacity error  [%]');
-    mux_scope(m, 'Voltage_Tracking_Scope', {'Demux_Replay/2', 'SOTA_Adaptive_Controller/2'}, [x0 200], ...
+    mux_scope(m, 'Voltage_Tracking_Scope', {'Demux_Replay/2', ea('Voltage_V')}, [x0 200], ...
         'Measured V (real cell) | Adaptive EKF predicted V');
-    scope(m, 'R_Adaptation_Scope', 'SOTA_Adaptive_Controller/9', [x0 280], 'Sage-Husa measurement-noise variance R');
-    scope(m, 'R0_Tracking_Scope', 'SOTA_Adaptive_Controller/7', [x0 340], 'R0 used by adaptive model [ohm]');
-    scope(m, 'Innovation_NIS_Scope', 'SOTA_Adaptive_Controller/5', [x0 400], 'NIS (expect ~1)');
-    scope(m, 'Diagnostic_Fault_Code_Scope', 'SOTA_Adaptive_Controller/6', [x0 460], 'Diagnostic bit-mask');
-    mux_scope(m, 'Capacity_SOH_Scope', {'SOH_Capacity_Estimator/10', 'True_Capacity_Ratio/1'}, [x0 520], ...
+    scope(m, 'R_Adaptation_Scope', ea('R_cov_V2'), [x0 280], 'Sage-Husa measurement-noise variance R');
+    scope(m, 'R0_Tracking_Scope', ea('R0_Ohm'), [x0 340], 'R0 used by adaptive model [ohm]');
+    scope(m, 'Innovation_NIS_Scope', ea('NIS'), [x0 400], 'NIS (expect ~1)');
+    scope(m, 'Diagnostic_Fault_Code_Scope', ea('FaultCode'), [x0 460], 'Diagnostic bit-mask');
+    mux_scope(m, 'Capacity_SOH_Scope', {es('CapacityRatio'), 'True_Capacity_Ratio/1'}, [x0 520], ...
         'Estimated capacity ratio (SOH) | true capacity ratio');
     add_block('simulink/Sinks/Display', [m '/Live_SOC_Display'], 'Position', [x0 + 230 40 x0 + 310 70]);
-    ln(m, 'SOTA_Adaptive_Controller/1', 'Live_SOC_Display/1');
+    ln(m, ea('SOC_pct'), 'Live_SOC_Display/1');
 
-    names = {'Ref_SOC_Percent/1', 'EKF_Baseline/1', 'SOTA_Adaptive_Controller/1', 'EKF_Baseline/8', 'Demux_Replay/2', ...
-             'SOTA_Adaptive_Controller/2', 'SOTA_Adaptive_Controller/3', 'SOTA_Adaptive_Controller/5', ...
-             'SOTA_Adaptive_Controller/6', 'SOTA_Adaptive_Controller/7', 'SOTA_Adaptive_Controller/9', ...
-             'SOH_Capacity_Estimator/1', 'SOH_Capacity_Estimator/10'};
+    names = {'Ref_SOC_Percent/1', eb('SOC_pct'), ea('SOC_pct'), eb('SOC_Coulomb_pct'), 'Demux_Replay/2', ...
+             ea('Voltage_V'), ea('Innovation_V'), ea('NIS'), ea('FaultCode'), ea('R0_Ohm'), ea('R_cov_V2'), ...
+             es('SOC_pct'), es('CapacityRatio')};
     logger(m, names, [x0 620]);
 
     note(m, ['Real-data BMS: replays a measured NASA Ames discharge (data_raw/*.mat). The OCV/RC model was calibrated on ' ...
@@ -148,10 +177,24 @@ function new_model(m, here, stop_var, init_cmd)
     f = fullfile(here, [m '.slx']);
     if isfile(f),  delete(f);  end
     new_system(m);
+    save_system(m, f);
+    set_param(m, 'DataDictionary', 'bms_data.sldd');
     set_param(m, 'SolverType', 'Fixed-step', 'Solver', 'FixedStepDiscrete', 'FixedStep', '1', ...
         'StopTime', stop_var, 'InitFcn', init_cmd, 'SaveOutput', 'off', 'SaveTime', 'on', ...
         'ReturnWorkspaceOutputs', 'on');
-    save_system(m, f);
+    % strict diagnostics: structural mistakes are build errors, not warnings
+    strict = {'UnconnectedInputMsg', 'error'; 'UnconnectedOutputMsg', 'error'; 'UnconnectedLineMsg', 'error'; ...
+              'AlgebraicLoopMsg', 'error'; 'ArtificialAlgebraicLoopMsg', 'error'; 'BusObjectLabelMismatch', 'error'; ...
+              'StrictBusMsg', 'ErrorOnBusTreatedAsVector'; 'SignalInfNanChecking', 'error'};
+    for i = 1:size(strict, 1)
+        try
+            set_param(m, strict{i, 1}, strict{i, 2});
+        catch ME
+            warning('build_bms_models:diag', 'Could not set %s: %s', strict{i, 1}, ME.message);
+        end
+    end
+    % document the intended target (32-bit ARM); real code generation needs Embedded Coder
+    try,  set_param(m, 'ProdHWDeviceType', 'ARM Compatible->ARM Cortex');  catch,  end
 end
 
 function finish(m, here)
@@ -169,14 +212,35 @@ function ln(m, src, dst)
     add_line(m, src, dst, 'autorouting', 'on');
 end
 
-function mfb(m, name, pos, code, rgb)
+function lnn(m, src, dst, name)
+    h = add_line(m, src, dst, 'autorouting', 'on');
+    set_param(h, 'Name', name);
+end
+
+function mfb(m, name, pos, code, rgb, bus_ports)
     p = [m '/' name];
     add_block('simulink/User-Defined Functions/MATLAB Function', p, 'Position', pos);
     save_system(m);
     rt = sfroot;
     ch = rt.find('-isa', 'Stateflow.EMChart', '-and', 'Path', p);
     ch.Script = code;
+    for i = 1:2:numel(bus_ports)          % {'argName', 'BusObjectName', ...}
+        d = ch.find('-isa', 'Stateflow.Data', '-and', 'Name', bus_ports{i});
+        d.DataType = ['Bus: ' bus_ports{i + 1}];
+    end
     set_param(p, 'BackgroundColor', mat2str(rgb));
+end
+
+function bsel(m, name, src, signals, pos)
+    add_block('simulink/Signal Routing/Bus Selector', [m '/' name], 'OutputSignals', strjoin(signals, ','), ...
+        'Position', pos);
+    ln(m, src, [name '/1']);
+end
+
+function p = sig(bs_name, signals, s)
+    idx = find(strcmp(signals, s));
+    assert(isscalar(idx), 'signal %s not selected on %s', s, bs_name);
+    p = sprintf('%s/%d', bs_name, idx);
 end
 
 function scope(m, name, src, pos, desc)
@@ -252,46 +316,62 @@ end
 %% ======================================================================
 function code = plant_code(variant)
     code = sprintf([ ...
-    'function [True_SOC, True_Voltage, Temperature_K] = Battery_Physics_Plant(I_load, SOC0)\n' ...
+    'function truth = Battery_Physics_Plant(I_load, SOC0)\n' ...
     '%%#codegen\n' ...
     '%% 2-RC Arrhenius cell with capacity/resistance mismatch (see bms_params). Algorithm: lib/bms_plant_step.m\n' ...
+    '%% Output: bus BMS_PlantTruth\n' ...
     'P = coder.const(bms_params(''%s''));\n' ...
     'persistent x k;\n' ...
     'if isempty(x)\n' ...
     '    x = [SOC0; 0.0; 0.0];  k = 0.0;\n' ...
     'end\n' ...
     'k = k + 1.0;\n' ...
-    'Temperature_K = bms_temp_profile(k);\n' ...
-    '[x, True_Voltage] = bms_plant_step(x, I_load, Temperature_K, P);\n' ...
-    'True_SOC = 100.0 * x(1);\n'], variant);
+    'T = bms_temp_profile(k);\n' ...
+    '[x, Vt] = bms_plant_step(x, I_load, T, P);\n' ...
+    'truth.SOC_pct = 100.0 * x(1);\n' ...
+    'truth.Voltage_V = Vt;\n' ...
+    'truth.Temperature_K = T;\n'], variant);
 end
 
 function code = sensor_code(variant)
     code = sprintf([ ...
-    'function [V_meas, I_meas, T_meas] = Sensor_Measurement(True_Voltage, I_raw, Temperature_K, Fault_Mode, Seed)\n' ...
+    'function meas = Sensor_Measurement(truth, I_raw, Fault_Mode, Seed)\n' ...
     '%%#codegen\n' ...
     '%% Noisy 12-bit-class sensors with injectable faults. Algorithm: lib/bms_sensor_step.m (seeded, reproducible)\n' ...
+    '%% Input: bus BMS_PlantTruth. Output: bus BMS_Measurement\n' ...
     'P = coder.const(bms_params(''%s''));\n' ...
     'persistent ss k;\n' ...
     'if isempty(ss)\n' ...
     '    ss = bms_seed(Seed);  k = 0.0;\n' ...
     'end\n' ...
     'k = k + 1.0;\n' ...
-    '[V_meas, I_meas, T_meas, ss] = bms_sensor_step(True_Voltage, I_raw, Temperature_K, k, ss, P, Fault_Mode);\n'], variant);
+    '[Vm, Im, Tm, ss] = bms_sensor_step(truth.Voltage_V, I_raw, truth.Temperature_K, k, ss, P, Fault_Mode);\n' ...
+    'meas.Voltage_V = Vm;\n' ...
+    'meas.Current_A = Im;\n' ...
+    'meas.Temperature_K = Tm;\n'], variant);
 end
 
 function code = ctrl_code(variant, mode, fname)
     code = sprintf([ ...
-    'function [Est_SOC, Est_Voltage, Innov_Error, P_trace, NIS, Fault_Code, R0_used, SOC_CoulombCount, R_cov, Capacity_Ratio] = %s(I_meas, V_meas, T_meas, Q_diag, R_var, SOC_guess)\n' ...
+    'function est = %s(meas, Q_diag, R_var, SOC_guess)\n' ...
     '%%#codegen\n' ...
     '%% 3-state Joseph-form EKF + diagnostics. Algorithm: lib/bms_est_step.m (estimator mode %d)\n' ...
+    '%% Input: bus BMS_Measurement. Output: bus BMS_Estimate\n' ...
     'P = coder.const(bms_params(''%s''));\n' ...
     'persistent st;\n' ...
     'if isempty(st)\n' ...
     '    st = bms_est_init(P, SOC_guess, Q_diag, R_var, %d);\n' ...
     'end\n' ...
-    '[st, o] = bms_est_step(st, I_meas, V_meas, T_meas, P, %d);\n' ...
-    'Est_SOC = o.soc;  Est_Voltage = o.vest;  Innov_Error = o.innov;  P_trace = o.ptrace;\n' ...
-    'NIS = o.nis;  Fault_Code = o.fault;  R0_used = o.r0;  SOC_CoulombCount = o.soc_cc;  R_cov = o.rcov;  Capacity_Ratio = o.cap;\n'], ...
+    '[st, o] = bms_est_step(st, meas.Current_A, meas.Voltage_V, meas.Temperature_K, P, %d);\n' ...
+    'est.SOC_pct = o.soc;\n' ...
+    'est.Voltage_V = o.vest;\n' ...
+    'est.Innovation_V = o.innov;\n' ...
+    'est.PTrace = o.ptrace;\n' ...
+    'est.NIS = o.nis;\n' ...
+    'est.FaultCode = o.fault;\n' ...
+    'est.R0_Ohm = o.r0;\n' ...
+    'est.SOC_Coulomb_pct = o.soc_cc;\n' ...
+    'est.R_cov_V2 = o.rcov;\n' ...
+    'est.CapacityRatio = o.cap;\n'], ...
     fname, mode, variant, mode, mode);
 end

@@ -1,165 +1,272 @@
 /**
  * @file bms_ekf.c
- * @brief Production ANSI C Implementation of 3-State 2-RC Thermal EKF.
+ * @brief ANSI C implementation of the 3-state 2-RC thermal EKF with diagnostics.
+ *
+ * Mirrors simulink_matlab/lib/bms_est_step.m (mode 0). Equation numbers refer to the project guide.
  */
 
 #include "bms_ekf.h"
 
-static const float ocv_poly[9] = {
-    -21.7497f,  82.2625f, -125.3296f,  99.6313f, -44.5010f,  11.3416f,  -1.5825f,   1.5032f,   3.0130f
+#define BMS_R_GAS 8.314f
+
+/* Default cell, identical to simulink_matlab/lib/bms_params.m('synthetic') */
+static const float k_default_ocv[BMS_OCV_COEFFS] = {
+    -21.7497f, 82.2625f, -125.3296f, 99.6313f, -44.5010f, 11.3416f, -1.5825f, 1.5032f, 3.0130f
 };
 
-static const float docv_poly[8] = {
-    -173.9976f, 575.8375f, -751.9776f, 498.1565f, -178.0040f,  34.0248f,  -3.1650f,   1.5032f
-};
+/* ------------------------------------------------------------------------- helpers */
 
-float BMS_ComputeOCV(float soc) {
-    if (soc < 0.0f) soc = 0.0f;
-    if (soc > 1.0f) soc = 1.0f;
-    float val = ocv_poly[0];
-    for (int i = 1; i < 9; i++) {
-        val = val * soc + ocv_poly[i];
-    }
-    return val;
+static float clampf(float x, float lo, float hi)
+{
+    if (x < lo) { return lo; }
+    if (x > hi) { return hi; }
+    return x;
 }
 
-float BMS_ComputedOCV(float soc) {
-    if (soc < 0.0f) soc = 0.0f;
-    if (soc > 1.0f) soc = 1.0f;
-    float val = docv_poly[0];
-    for (int i = 1; i < 8; i++) {
-        val = val * soc + docv_poly[i];
+/* Horner evaluation, highest power first: one multiply and one add per coefficient. */
+static float poly_eval(const float *c, int n, float x)
+{
+    float v = c[0];
+    int i;
+    for (i = 1; i < n; i++) {
+        v = v * x + c[i];
     }
-    return val;
+    return v;
 }
 
-void BMS_EKF_Init(BMS_EKF_t *ekf, float init_soc, float temp_k) {
-    (void)temp_k;
-    ekf->params.R0_ref = 0.012f;
-    ekf->params.R1_ref = 0.008f;
-    ekf->params.C1     = 1500.0f;
-    ekf->params.R2_ref = 0.015f;
-    ekf->params.C2     = 12000.0f;
-    ekf->params.Qn     = 7200.0f;
-    ekf->params.eta    = 1.0f;
-    ekf->params.dt     = 1.0f;
-    ekf->params.Ea     = 18000.0f;
-    ekf->params.T_ref  = 298.15f;
+static void derive_docv(BMS_EKF_t *ekf)
+{
+    int i;
+    for (i = 0; i < BMS_OCV_COEFFS - 1; i++) {
+        ekf->docv[i] = ekf->config.ocv[i] * (float)(BMS_OCV_COEFFS - 1 - i);
+    }
+}
 
-    ekf->config.q_SOC = 1.00e-7f;
-    ekf->config.q_V1  = 1.00e-7f;
-    ekf->config.q_V2  = 1.00e-7f;
-    ekf->config.r_V   = 2.455e-3f;
+/* OCV and slope for a SOC, clamped to 0..1; slope floored so the Kalman gain never collapses. */
+static void ocv_and_slope(const BMS_EKF_t *ekf, float soc, float *ocv, float *dv)
+{
+    float s = clampf(soc, 0.0f, 1.0f);
+    float d;
+    *ocv = poly_eval(ekf->config.ocv, BMS_OCV_COEFFS, s);
+    d    = poly_eval(ekf->docv, BMS_OCV_COEFFS - 1, s);
+    *dv  = (d > 0.02f) ? d : 0.02f;
+}
+
+float BMS_ComputeOCV(float soc)
+{
+    return poly_eval(k_default_ocv, BMS_OCV_COEFFS, clampf(soc, 0.0f, 1.0f));
+}
+
+float BMS_ComputedOCV(float soc)
+{
+    float d[BMS_OCV_COEFFS - 1];
+    float dv;
+    int i;
+    for (i = 0; i < BMS_OCV_COEFFS - 1; i++) {
+        d[i] = k_default_ocv[i] * (float)(BMS_OCV_COEFFS - 1 - i);
+    }
+    dv = poly_eval(d, BMS_OCV_COEFFS - 1, clampf(soc, 0.0f, 1.0f));
+    return (dv > 0.02f) ? dv : 0.02f;
+}
+
+/* ------------------------------------------------------------------------- init */
+
+void BMS_EKF_Configure(BMS_EKF_t *ekf, const BMS_BatteryParams_t *params, const BMS_EKF_Config_t *config,
+                       const BMS_Diag_Config_t *diag, float init_soc)
+{
+    int i, j;
+    ekf->params = *params;
+    ekf->config = *config;
+    ekf->diag   = *diag;
+    derive_docv(ekf);
 
     ekf->x_hat[0] = init_soc;
     ekf->x_hat[1] = 0.0f;
     ekf->x_hat[2] = 0.0f;
-
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 3; j++) {
-            ekf->P[i][j] = (i == j) ? ((i == 0) ? 0.01f : 0.0025f) : 0.0f;
+    for (i = 0; i < BMS_STATE_DIM; i++) {
+        for (j = 0; j < BMS_STATE_DIM; j++) {
+            ekf->P[i][j] = 0.0f;
         }
     }
-    ekf->is_initialized = 1;
+    ekf->P[0][0] = config->p0_SOC;
+    ekf->P[1][1] = config->p0_V1;
+    ekf->P[2][2] = config->p0_V2;
+
+    ekf->T_last  = 298.15f;
+    ekf->nis_avg = 1.0f;
+    ekf->k       = 0u;
+    ekf->rej     = 0u;
+    ekf->is_initialized = 1u;
 }
 
-void BMS_EKF_Step(BMS_EKF_t *ekf, float current_A, float voltage_meas_V, float temp_k, float *out_soc, float *out_v1, float *out_v2) {
-    if (!ekf->is_initialized) return;
+void BMS_EKF_Init(BMS_EKF_t *ekf, float init_soc, float temp_k)
+{
+    BMS_BatteryParams_t p;
+    BMS_EKF_Config_t    c;
+    BMS_Diag_Config_t   d;
+    int i;
+    (void)temp_k;
 
-    /* Thermal adaptation */
-    float tfactor = expf((ekf->params.Ea / 8.314f) * (1.0f / temp_k - 1.0f / ekf->params.T_ref));
-    float R0 = ekf->params.R0_ref * tfactor;
-    float R1 = ekf->params.R1_ref * tfactor;
-    float R2 = ekf->params.R2_ref * tfactor;
+    p.R0_ref = 0.012f;  p.R1_ref = 0.008f;  p.R2_ref = 0.015f;
+    p.C1 = 1500.0f;     p.C2 = 12000.0f;    p.Qn = 7200.0f;
+    p.eta = 1.0f;       p.dt = 1.0f;        p.Ea = 18000.0f;   p.T_ref = 298.15f;
 
-    float a1 = expf(-ekf->params.dt / (R1 * ekf->params.C1));
-    float b1 = R1 * (1.0f - a1);
-    float a2 = expf(-ekf->params.dt / (R2 * ekf->params.C2));
-    float b2 = R2 * (1.0f - a2);
+    /* ACO-tuned noise settings (simulink_matlab/lib/bms_tuned_data.m, synthetic cell) */
+    c.q_SOC = 1.000000e-09f;  c.q_V1 = 1.000000e-09f;  c.q_V2 = 1.533887e-07f;
+    c.r_V   = 1.474701e-03f;
+    c.p0_SOC = 0.01f;  c.p0_V1 = 0.0025f;  c.p0_V2 = 0.0025f;
+    for (i = 0; i < BMS_OCV_COEFFS; i++) { c.ocv[i] = k_default_ocv[i]; }
 
-    /* 1. Predict state */
-    float soc_p = ekf->x_hat[0] - (ekf->params.eta * current_A * ekf->params.dt) / ekf->params.Qn;
-    if (soc_p < 0.0f) soc_p = 0.0f;
-    if (soc_p > 1.0f) soc_p = 1.0f;
-    float v1_p = a1 * ekf->x_hat[1] + b1 * current_A;
-    float v2_p = a2 * ekf->x_hat[2] + b2 * current_A;
+    d.v_min = 2.0f;  d.v_max = 4.8f;  d.t_min = 250.0f;  d.t_max = 345.0f;  d.i_max = 10.0f;
+    d.gate_nis = 20.0f;  d.gate_k0 = 30u;  d.max_rej = 10u;
+    d.nis_alpha = 0.02f;  d.nis_limit = 5.0f;
 
-    /* 2. Predict covariance P_pred = F * P * F^T + Q */
-    float F[3][3] = { {1.0f, 0.0f, 0.0f}, {0.0f, a1, 0.0f}, {0.0f, 0.0f, a2} };
-    float P_pred[3][3];
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 3; j++) {
+    BMS_EKF_Configure(ekf, &p, &c, &d, init_soc);
+}
+
+/* ------------------------------------------------------------------------- step */
+
+void BMS_EKF_StepEx(BMS_EKF_t *ekf, float current_A, float voltage_meas_V, float temp_k, BMS_EKF_Out_t *out)
+{
+    float F[BMS_STATE_DIM];                      /* diagonal of the state-transition matrix */
+    float Pp[BMS_STATE_DIM][BMS_STATE_DIM];
+    float Pu[BMS_STATE_DIM][BMS_STATE_DIM];
+    float xp[BMS_STATE_DIM], xu[BMS_STATE_DIM];
+    float Hm[BMS_STATE_DIM], hp[BMS_STATE_DIM], K[BMS_STATE_DIM];
+    float IKH[BMS_STATE_DIM][BMS_STATE_DIM], tmp[BMS_STATE_DIM][BMS_STATE_DIM];
+    float qd[BMS_STATE_DIM];
+    float T, Tc, tf, R0, R1, R2, a1, b1, a2, b2;
+    float ocv, dv, vest, r, S, nis, sq;
+    unsigned int flags = 0u;
+    int vbad, accept;
+    int i, j, l;
+
+    if (!ekf->is_initialized) { return; }
+    ekf->k += 1u;
+
+    /* 1. sensor plausibility */
+    T = temp_k;
+    vbad = !((voltage_meas_V > ekf->diag.v_min) && (voltage_meas_V < ekf->diag.v_max));
+    if (vbad) { flags |= BMS_FAULT_V_RANGE; }
+    if (!((T > ekf->diag.t_min) && (T < ekf->diag.t_max))) {
+        flags |= BMS_FAULT_T_RANGE;
+        T = ekf->T_last;                         /* hold last good temperature */
+    } else {
+        ekf->T_last = T;
+    }
+    if (fabsf(current_A) > ekf->diag.i_max) { flags |= BMS_FAULT_I_RANGE; }
+
+    /* 2. thermal adaptation and RC coefficients (Arrhenius law) */
+    Tc = clampf(T, 250.0f, 350.0f);
+    tf = expf((ekf->params.Ea / BMS_R_GAS) * (1.0f / Tc - 1.0f / ekf->params.T_ref));
+    R0 = ekf->params.R0_ref * tf;
+    R1 = ekf->params.R1_ref * tf;
+    R2 = ekf->params.R2_ref * tf;
+    a1 = expf(-ekf->params.dt / (R1 * ekf->params.C1));
+    b1 = R1 * (1.0f - a1);
+    a2 = expf(-ekf->params.dt / (R2 * ekf->params.C2));
+    b2 = R2 * (1.0f - a2);
+
+    /* 3. time update: state and covariance */
+    xp[0] = clampf(ekf->x_hat[0] - ekf->params.eta * current_A * ekf->params.dt / ekf->params.Qn, 0.0f, 1.0f);
+    xp[1] = a1 * ekf->x_hat[1] + b1 * current_A;
+    xp[2] = a2 * ekf->x_hat[2] + b2 * current_A;
+    F[0] = 1.0f;  F[1] = a1;  F[2] = a2;
+    qd[0] = ekf->config.q_SOC;  qd[1] = ekf->config.q_V1;  qd[2] = ekf->config.q_V2;
+    for (i = 0; i < BMS_STATE_DIM; i++) {
+        for (j = 0; j < BMS_STATE_DIM; j++) {
+            Pp[i][j] = (F[i] * ekf->P[i][j]) * F[j];
+        }
+        Pp[i][i] += qd[i];
+    }
+
+    /* 4. innovation: predicted voltage, residual, innovation covariance, NIS */
+    ocv_and_slope(ekf, xp[0], &ocv, &dv);
+    vest = ocv - xp[1] - xp[2] - R0 * current_A;
+    r    = voltage_meas_V - vest;
+    Hm[0] = dv;  Hm[1] = -1.0f;  Hm[2] = -1.0f;
+    S = 0.0f;
+    for (j = 0; j < BMS_STATE_DIM; j++) {
+        hp[j] = 0.0f;
+        for (i = 0; i < BMS_STATE_DIM; i++) { hp[j] += Hm[i] * Pp[i][j]; }
+        S += hp[j] * Hm[j];
+    }
+    S += ekf->config.r_V;
+    nis = (r * r) / S;
+
+    /* 5. outlier gate: skip the correction for implausible samples */
+    accept = !vbad;
+    if (accept && ekf->k > (uint32_t)ekf->diag.gate_k0 && nis > ekf->diag.gate_nis && ekf->rej < ekf->diag.max_rej) {
+        accept = 0;
+        flags |= BMS_FAULT_REJECTED;
+        ekf->rej += 1u;
+    } else if (accept) {
+        ekf->rej = 0u;
+    }
+
+    /* 6. measurement update, Joseph form */
+    if (accept) {
+        for (i = 0; i < BMS_STATE_DIM; i++) {
             float sum = 0.0f;
-            for (int k = 0; k < 3; k++) {
-                for (int l = 0; l < 3; l++) {
-                    sum += F[i][k] * ekf->P[k][l] * F[j][l];
-                }
+            for (j = 0; j < BMS_STATE_DIM; j++) { sum += Pp[i][j] * Hm[j]; }
+            K[i] = sum / S;
+        }
+        for (i = 0; i < BMS_STATE_DIM; i++) { xu[i] = xp[i] + K[i] * r; }
+        xu[0] = clampf(xu[0], 0.0f, 1.0f);
+
+        for (i = 0; i < BMS_STATE_DIM; i++) {
+            for (j = 0; j < BMS_STATE_DIM; j++) {
+                IKH[i][j] = ((i == j) ? 1.0f : 0.0f) - K[i] * Hm[j];
             }
-            if (i == j) {
-                float q_val = (i == 0) ? ekf->config.q_SOC : ((i == 1) ? ekf->config.q_V1 : ekf->config.q_V2);
-                sum += q_val;
+        }
+        for (i = 0; i < BMS_STATE_DIM; i++) {
+            for (j = 0; j < BMS_STATE_DIM; j++) {
+                float sum = 0.0f;
+                for (l = 0; l < BMS_STATE_DIM; l++) { sum += IKH[i][l] * Pp[l][j]; }
+                tmp[i][j] = sum;
             }
-            P_pred[i][j] = sum;
         }
-    }
-
-    /* 3. Predict measurement */
-    float ocv = BMS_ComputeOCV(soc_p);
-    float v_pred = ocv - v1_p - v2_p - (R0 * current_A);
-    float residual = voltage_meas_V - v_pred;
-
-    /* 4. Measurement Jacobian H = [docv, -1, -1] */
-    float dOCV = BMS_ComputedOCV(soc_p);
-    float H[3] = { dOCV, -1.0f, -1.0f };
-
-    /* 5. Innovation covariance S = H * P_pred * H^T + R */
-    float S = ekf->config.r_V;
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 3; j++) {
-            S += H[i] * P_pred[i][j] * H[j];
-        }
-    }
-
-    /* 6. Kalman gain K = (P_pred * H^T) / S */
-    float K[3];
-    for (int i = 0; i < 3; i++) {
-        float sum = 0.0f;
-        for (int j = 0; j < 3; j++) {
-            sum += P_pred[i][j] * H[j];
-        }
-        K[i] = sum / S;
-    }
-
-    /* 7. Correct State */
-    ekf->x_hat[0] = soc_p + K[0] * residual;
-    if (ekf->x_hat[0] < 0.0f) ekf->x_hat[0] = 0.0f;
-    if (ekf->x_hat[0] > 1.0f) ekf->x_hat[0] = 1.0f;
-    ekf->x_hat[1] = v1_p + K[1] * residual;
-    ekf->x_hat[2] = v2_p + K[2] * residual;
-
-    /* 8. Joseph-Form Covariance Update P_upd = (I - K*H)*P_pred*(I - K*H)^T + K*R*K^T */
-    float IKH[3][3];
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 3; j++) {
-            float eye_val = (i == j) ? 1.0f : 0.0f;
-            IKH[i][j] = eye_val - K[i] * H[j];
-        }
-    }
-
-    for (int i = 0; i < 3; i++) {
-        for (int j = 0; j < 3; j++) {
-            float sum = 0.0f;
-            for (int k = 0; k < 3; k++) {
-                for (int l = 0; l < 3; l++) {
-                    sum += IKH[i][k] * P_pred[k][l] * IKH[j][l];
-                }
+        for (i = 0; i < BMS_STATE_DIM; i++) {
+            for (j = 0; j < BMS_STATE_DIM; j++) {
+                float sum = 0.0f;
+                for (l = 0; l < BMS_STATE_DIM; l++) { sum += tmp[i][l] * IKH[j][l]; }
+                Pu[i][j] = sum + (K[i] * ekf->config.r_V) * K[j];
             }
-            sum += K[i] * ekf->config.r_V * K[j];
-            ekf->P[i][j] = sum;
+        }
+    } else {
+        for (i = 0; i < BMS_STATE_DIM; i++) {
+            xu[i] = xp[i];
+            for (j = 0; j < BMS_STATE_DIM; j++) { Pu[i][j] = Pp[i][j]; }
         }
     }
 
-    if (out_soc) *out_soc = ekf->x_hat[0];
-    if (out_v1)  *out_v1  = ekf->x_hat[1];
-    if (out_v2)  *out_v2  = ekf->x_hat[2];
+    /* 7. consistency monitor */
+    sq = (nis < 100.0f) ? nis : 100.0f;
+    ekf->nis_avg = (1.0f - ekf->diag.nis_alpha) * ekf->nis_avg + ekf->diag.nis_alpha * sq;
+    if (ekf->k > 100u && ekf->nis_avg > ekf->diag.nis_limit) { flags |= BMS_FAULT_INCONSISTENT; }
+
+    /* 8. commit state */
+    for (i = 0; i < BMS_STATE_DIM; i++) {
+        ekf->x_hat[i] = xu[i];
+        for (j = 0; j < BMS_STATE_DIM; j++) { ekf->P[i][j] = Pu[i][j]; }
+    }
+
+    if (out) {
+        out->soc_pct    = 100.0f * xu[0];
+        out->v_est      = vest;
+        out->innovation = r;
+        out->nis        = nis;
+        out->p_trace    = Pu[0][0] + Pu[1][1] + Pu[2][2];
+        out->fault      = (uint8_t)flags;
+    }
+}
+
+void BMS_EKF_Step(BMS_EKF_t *ekf, float current_A, float voltage_meas_V, float temp_k,
+                  float *out_soc, float *out_v1, float *out_v2)
+{
+    BMS_EKF_Out_t o;
+    BMS_EKF_StepEx(ekf, current_A, voltage_meas_V, temp_k, &o);
+    if (out_soc) { *out_soc = ekf->x_hat[0]; }
+    if (out_v1)  { *out_v1  = ekf->x_hat[1]; }
+    if (out_v2)  { *out_v2  = ekf->x_hat[2]; }
 }

@@ -4,6 +4,8 @@ function L = bms_simulate(P, sc)
 %
 %   sc fields (synthetic): I, soc0, init_err, seed, fault_mode, Q, R
 %   sc fields (replay)   : I, V, T, soc_ref, init_err, Q, R       (sc.replay = true)
+%   sc.precision = 'single' runs the ESTIMATOR in 32-bit float (plant and sensors stay double), which is
+%   the arithmetic of the embedded firmware; the logged measurements are then the float values it saw.
     N = numel(sc.I);
     if ~isfield(sc, 'replay'),      sc.replay = false;  end
     if ~isfield(sc, 'fault_mode'),  sc.fault_mode = 0;  end
@@ -19,8 +21,14 @@ function L = bms_simulate(P, sc)
     end
     guess = min(max(soc0 + sc.init_err, 0), 1);
 
-    ekf  = bms_est_init(P, guess, sc.Q, sc.R, 0);
-    sota = bms_est_init(P, guess, sc.Q, sc.R, P.sota_mode);
+    prec = 'double';
+    if isfield(sc, 'precision'),  prec = sc.precision;  end
+    Pe = P;
+    if strcmp(prec, 'single'),  Pe = bms_cast(P, 'single');  end
+    cv = @(x) cast(x, prec);
+
+    ekf  = bms_est_init(Pe, cv(guess), cv(sc.Q), cv(sc.R), 0);
+    sota = bms_est_init(Pe, cv(guess), cv(sc.Q), cv(sc.R), P.sota_mode);
     x  = [soc0; 0; 0];
     ss = bms_seed(sc.seed);
 
@@ -38,11 +46,12 @@ function L = bms_simulate(P, sc)
             [Vm, Im, Tm, ss] = bms_sensor_step(Vt, sc.I(k), T, k, ss, P, sc.fault_mode);
             L.soc_true(k) = 100 * x(1);  L.V_true(k) = Vt;
         end
-        [ekf,  oe] = bms_est_step(ekf,  Im, Vm, Tm, P, 0);
+        Im = cv(Im);  Vm = cv(Vm);  Tm = cv(Tm);          % what the estimator actually sees
+        [ekf,  oe] = bms_est_step(ekf,  Im, Vm, Tm, Pe, 0);
         if sc.skip_sota
             os = oe;                       % tuning runs only need the EKF
         else
-            [sota, os] = bms_est_step(sota, Im, Vm, Tm, P, P.sota_mode);
+            [sota, os] = bms_est_step(sota, Im, Vm, Tm, Pe, P.sota_mode);
         end
         L.soc_ekf(k) = oe.soc;   L.soc_sota(k) = os.soc;   L.soc_cc(k) = oe.soc_cc;
         L.V_meas(k) = Vm;        L.V_est(k) = oe.vest;     L.innov(k) = oe.innov;

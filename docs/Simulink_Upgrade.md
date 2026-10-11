@@ -29,7 +29,7 @@ simulink_matlab/
     bms_simulate.m          pure-MATLAB closed loop (tuning, Monte Carlo, back-to-back reference)
   build_bms_models.m        regenerates both .slx files (thin MATLAB Function wrappers only)
   bms_setup.m               model InitFcn: path + scenario variables (overridable)
-  run_bms_regression.m      automated verification (22 checks)
+  run_bms_regression.m      automated verification (33 checks)
 ```
 
 * `advanced_bms_aco_ekf.slx` - simulated plant + faultable sensors + ACO-tuned EKF, 8 scopes, diagnostic code.
@@ -91,3 +91,15 @@ estimate is biased by up to about 0.1 by cell-to-cell OCV differences. It is the
   software-in-the-loop equivalence with `c_firmware/bms_ekf.c` were not verified.
 * `data/NASA_B0005.csv` (and `run_sota_ultimate_simulation.m`, `nasa_benchmark_runner.py`, which read it) use
   synthetic data. Use `data_raw/*.mat` via `bms_nasa_load` for real data.
+
+## Industry-hardening round (33 checks)
+
+| Step | What was done | Evidence |
+|---|---|---|
+| Tidy the models | Signals travel on three bus objects (`BMS_PlantTruth`, `BMS_Measurement`, `BMS_Estimate`) with units and descriptions in the data dictionary `bms_data.sldd`; tuned Q and R are `Simulink.Parameter` objects there; strict diagnostics (dangling ports, algebraic loops, bus mismatch) are errors | 0 unconnected ports (was 22); 16 documented bus elements; Simulink output still equals the library exactly |
+| Float32 study | `bms_cast.m`, `bms_precision_study.m`; `bms_simulate` can run the estimator in `single` | Worst SOC difference 0.059%, worst voltage difference 0.27 mV, identical diagnostics, no NaN or Inf, 15 scenarios |
+| Software-in-the-loop | `c_firmware/` rewritten to mirror `bms_est_step.m` (diagnostics, tuned constants, configurable cell and OCV curve); `bms_sil_build.m` compiles it with gcc or MATLAB's bundled LCC; `bms_sil_run.m` compares it with the MATLAB float32 estimator on identical measurements | 0.00056% SOC, 0.29 mV, covariance trace within 1.2e-4, identical diagnostic codes (314 flagged samples), 6 scenarios |
+
+Regression suites added: 0 (model quality), 6 (precision) and 7 (SIL); run with `run_bms_regression`.
+
+Still open: Model Advisor / MAAB / ISO 26262 checks, requirements traceability and coverage (Simulink Check, Test and Coverage are not installed), code generation with Embedded Coder and PIL timing, MISRA analysis and stack measurement of the firmware, dynamic driving and cold-temperature data.
