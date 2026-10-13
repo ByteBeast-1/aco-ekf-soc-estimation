@@ -1,6 +1,13 @@
 # 🔋 2-RC Thermal MO-ACO-EKF SOC Estimation System
 
-A production-grade, multi-platform engineering implementation of the **Thermal-Adaptive 2-RC Multi-Objective Ant Colony Optimized Extended Kalman Filter (MO-ACO-EKF)** for Lithium-Ion Battery State-of-Charge (SOC) estimation.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](pyproject.toml)
+[![MATLAB R2024b](https://img.shields.io/badge/MATLAB-R2024b-orange.svg)](simulink_matlab/)
+[![Simulink Models](https://img.shields.io/badge/Simulink-MBD-red.svg)](simulink_matlab/)
+[![Embedded C](https://img.shields.io/badge/C99-MISRA--Ready-green.svg)](c_firmware/)
+[![Regression Suite](https://img.shields.io/badge/Regression-33%2F33%20PASS-brightgreen.svg)](results/baseline_regression_20261013.txt)
+
+An automotive-grade, multi-platform Model-Based Design (MBD) engineering implementation of the **Thermal-Adaptive 2-RC Multi-Objective Ant Colony Optimized Extended Kalman Filter (MO-ACO-EKF)** for Lithium-Ion Battery State-of-Charge (SOC) and State-of-Health (SOH) estimation.
 
 Extends the foundational research of:
 > Kannan M, Sundareswaran K, et al., *"Ant Colony Optimized Extended Kalman Filter for State of Charge Estimation of Lithium-Ion Battery"*, **IEEE Transactions on Instrumentation and Measurement**, Vol. 74, 2025.
@@ -9,10 +16,10 @@ Extends the foundational research of:
 
 ## 🌟 4 Key Engineering Novelties
 
-1. **Arrhenius Thermal-Adaptive 2-RC Physics ($T$-2RC):** 3-State Vector $\mathbf{x} = [\text{SOC}, V_1, V_2]^T$ with dynamic parameter tracking $R_0(T), R_1(T), R_2(T)$ solving the IEEE basepaper's thermal limitation.
-2. **Multi-Objective Ant Colony Optimization (MO-ACOR):** Dual-objective AI optimization minimizing both steady-state MSE tracking error AND initial error convergence time.
-3. **Joseph-Form 3-State ANSI C Firmware:** Zero-malloc C code (`<2 KB` RAM footprint) compiled and verified for 32-bit automotive microcontrollers.
-4. **Automotive Model-Based Design (MBD) Simulink Architecture:** Complete 2-subsystem visual block diagram (`advanced_bms_aco_ekf.slx`) separating `Battery_Physics_Plant` from `ACO_EKF_Controller` with interactive scopes.
+1. **Arrhenius Thermal-Adaptive 2-RC Physics ($T$-2RC):** 4-State Vector $\mathbf{x} = [\text{SOC}, V_1, V_2, \text{CapacityRatio}]^T$ with dynamic parameter tracking $R_0(T), R_1(T), R_2(T)$ solving the IEEE basepaper's fixed-temperature limitation.
+2. **Multi-Objective Ant Colony Optimization (MO-ACOR):** Dual-objective continuous AI swarm optimization in log-space minimizing both steady-state tracking error (MSE) AND initial offset convergence time ($<90\text{ s}$ from $\pm 20\%$ error).
+3. **Joseph-Form 32-Bit ANSI C Firmware:** Zero-malloc, statically bounded C99 code (`<250 bytes` RAM state) compiled and verified against MATLAB via Software-in-the-Loop (SIL) within $0.00058\%$ SOC discrepancy.
+4. **Automotive Model-Based Design (MBD) Architecture:** Complete 3-subsystem visual block diagram (`Battery_Physics_Plant`, `Sensor_Measurement`, and `ACO_EKF_Controller`) coupled via typed bus objects in `bms_data.sldd`.
 
 ---
 
@@ -20,64 +27,105 @@ Extends the foundational research of:
 
 ```
 aco-ekf-soc-estimation/
-├── README.md
-├── requirements.txt
+├── README.md                        # Project landing page with verified empirical metrics
+├── LICENSE                          # MIT open-source license
+├── CHANGELOG.md                     # Semantic versioning changelog
+├── CONTRIBUTING.md                  # Development, branch, and verification guidelines
+├── pyproject.toml, environment.yml  # Modern Python packaging and conda environment
+├── requirements.txt                 # Pinned dependencies
 │
-├── python/                          # Python research pipeline (run from the repo root)
+├── python/                          # Python research pipeline (run from repo root)
 │   ├── main.py                      #   Master pipeline: data -> MO-ACO -> EKF -> figures
 │   ├── battery_model.py             #   Thermal-adaptive 2-RC ECM + 8th-order OCV
-│   ├── ekf.py                       #   3-state Joseph-form Extended Kalman Filter
-│   ├── ukf.py                       #   3-state Unscented Kalman Filter benchmark
+│   ├── ekf.py                       #   Joseph-form Extended Kalman Filter
+│   ├── ukf.py                       #   Unscented Kalman Filter benchmark
 │   ├── aco_optimizer.py             #   Multi-objective continuous ACO (MO-ACOR)
-│   ├── adaptive_hybrid_ekf.py       #   Adaptive hybrid EKF (Sage-Husa + RLS + NN residual)
+│   ├── adaptive_hybrid_ekf.py       #   Adaptive hybrid EKF (Sage-Husa R + RLS + NN residual)
 │   ├── online_rls.py, residual_nn.py#   Online RLS parameter ID, residual MLP corrector
 │   ├── data_generator.py            #   4 dynamic operating profiles with thermal gradients
 │   ├── benchmark_suite.py           #   4-way comparative benchmark suite
-│   ├── nasa_benchmark_runner.py     #   NASA B0005 benchmark (reads the synthetic CSV, see data/README.md)
-│   ├── main_ultimate.py             #   Full SOTA pipeline (RLS + Sage-Husa + NN)
-│   ├── nasa_dataset_loader.py, download_nasa_dataset.py, parse_official_nasa_mat.py
+│   ├── nasa_benchmark_runner.py     #   Benchmark on data/SYNTHETIC_B0005.csv
+│   ├── main_ultimate.py             #   Adaptive pipeline (RLS + Sage-Husa + NN)
 │   └── visualization.py
 │
-├── simulink_matlab/                 # MATLAB & Simulink model-based design (see docs/Simulink_Upgrade.md)
+├── simulink_matlab/                 # MATLAB & Simulink MBD models (see docs/Simulink_Upgrade.md)
 │   ├── advanced_bms_aco_ekf.slx     #   MAIN MODEL: simulated plant + faultable sensors + ACO-tuned EKF
-│   ├── sota_bms_aco_ekf.slx         #   Replay of REAL NASA cells: EKF vs adaptive EKF vs capacity (SOH) state
+│   ├── sota_bms_aco_ekf.slx         #   REAL NASA REPLAY: EKF vs Adaptive EKF vs SOH capacity state
+│   ├── animate_bms_live.m           #   Live high-contrast animation dashboard
 │   ├── lib/                         #   Shared algorithm library (plant, sensors, EKF, ACO tuner, NASA loader)
-│   ├── build_bms_models.m           #   Regenerates both models from lib/
-│   ├── run_simulink.m, run_sota_simulink.m, plot_simulink_results.m
+│   ├── build_bms_models.m           #   Programmatically regenerates both models from lib/
+│   ├── run_simulink.m, run_sota_simulink.m
 │   ├── run_bms_regression.m         #   33-check automated verification suite
-│   ├── run_aco_ekf_simulation.m     #   Standalone MATLAB simulation (no Simulink needed)
-│   └── results/                     #   Regression CSV + block-diagram snapshots
+│   └── results/                     #   Regression CSV, baseline logs, block-diagram snapshots
 │
-├── c_firmware/                      # Embedded ANSI C firmware (<2 KB RAM)
-│   ├── bms_ekf.h, bms_ekf.c     #   EKF + diagnostics, mirrors lib/bms_est_step.m
-│   ├── main_test.c, sil/        #   smoke test, software-in-the-loop driver
+├── c_firmware/                      # Embedded ANSI C firmware (<250 B RAM)
+│   ├── bms_ekf.h, bms_ekf.c         #   EKF + diagnostics, mirrors lib/bms_est_step.m
+│   ├── main_test.c, sil/            #   Unit smoke test, software-in-the-loop driver
 │   └── README.md
 │
-├── data/                            # Processed datasets used by the Python scripts (see data/README.md)
-├── data_raw/                        # Official NASA Ames B0005/B0006/B0007 .mat files (real cell data)
-├── models/                          # Trained model weights (generated, git-ignored)
-├── figures/                         # Publication-ready PNG figures (00-16)
-├── tools/                           # Helper scripts that draw the architecture diagrams
-├── docs/                            # Technical documentation
-│   ├── Complete_Project_Guide.md    #   START HERE: full explanation, every block, the maths and derivations, results
-│   ├── Simulink_Upgrade.md, system_design.md, complete_project_documentation.md, ...
-│   ├── presentation/                #   Mid-review slides (LaTeX + PowerPoint)
-│   └── references/                  #   Research blueprint (base paper PDF kept local, git-ignored)
-└── archive/                         # Files not needed to build or run the project (see archive/README.md)
+├── data/                            # Benchmark CSVs (see data/README.md)
+│   ├── SYNTHETIC_B0005.csv          #   Synthetic 2 A discharge test bench for Python
+│   └── NASA_B0005_OFFICIAL_Cycle1.csv#  Real measured cycle #1 extracted from B0005.mat
+├── data_raw/                        # Official NASA Ames B0005/B0006/B0007 .mat laboratory data
+├── results/                         # Regression outputs & baseline verification logs
+├── figures/                         # Publication-ready figures (00-16)
+├── tools/                           # Tooling (make_results_table.py, architecture generators)
+└── docs/                            # In-depth engineering documentation
+    ├── architecture.md              #   System architecture & signal bus layout
+    ├── Complete_Project_Guide.md    #   Mathematical derivations and block breakdown
+    ├── Master_Study_Plan.md         #   Viva defense and study roadmap
+    ├── SIMULINK_MASTER_NOTEBOOK.md  #   Advanced BMS model specification
+    └── SOTA_BMS_MASTER_NOTEBOOK.md  #   Real-data replay specification
 ```
 
 ---
 
 ## 📊 Performance Benchmarks
 
-Tested under dynamic driving cycles with $+10\%$ initial estimation error:
+<!-- RESULTS_TABLE_START -->
 
-| Algorithm | Model | MSE | MAE (%) | MAPE (%) | $R^2$ Fit | Execution Time |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Coulomb Counting** | Integration | $1.02 \times 10^{-2}$ | $10.02\%$ | $11.45\%$ | $0.8241$ | $0.15\text{ ms}$ |
-| **Conventional EKF** | Hand-tuned 2-RC | $1.85 \times 10^{-5}$ | $0.0796\%$ | $0.0912\%$ | $0.9991$ | $1.20\text{ ms}$ |
-| **Unscented KF (UKF)** | 7 Sigma Points | $1.74 \times 10^{-5}$ | $0.0788\%$ | $0.0895\%$ | $0.9992$ | $4.85\text{ ms}$ |
-| **MO-ACO-EKF (Ours)** | **Thermal 2-RC** | **$1.85 \times 10^{-7}$** | **$<0.0100\%$** | **$<0.0120\%$** | **$0.9999$** | **$1.45\text{ ms}$** |
+### Table 1: Model-Matched Synthetic Benchmarks (40 Randomized Monte Carlo Runs)
+
+> [!NOTE]
+> **Note on Synthetic Results:** These synthetic metrics evaluate an ideal 2-RC Arrhenius plant with random parameter scale shifts, initial guess offsets ($\pm 20\%$), and sensor noise. Because the estimator physics model structurally matches the simulated plant, synthetic numbers are optimistic compared to real electrochemistry.
+
+| Estimator Algorithm | Mean MAE (%) | Worst-Case MAE (%) | 95th Percentile MAE (%) | Worst Max Error (%) |
+| :--- | :---: | :---: | :---: | :---: |
+| **Coulomb Counting** ($\pm 20\%$ init error) | 10.71% | 20.80% | 18.22% | 21.50% |
+| **ACO-Tuned EKF** (Mode 0) | **0.481%** | **1.153%** | **0.982%** | **1.852%** |
+| **Adaptive EKF** (Sage-Husa $R$, Mode 2) | 0.481% | 1.184% | 1.006% | 2.124% |
+
+---
+
+### Table 2: Real Hardware Validation (NASA Ames Laboratory Cells, Out-of-Sample)
+
+> [!IMPORTANT]
+> **Experimental Hardware Integrity:** Model parameters and ACO covariances were calibrated strictly on Cell **B0006** (cycles #1 and #60). Cells **B0005** and **B0007** (and aged cycles) are completely **unseen, out-of-sample physical hardware tests** from the NASA Ames Prognostics Center of Excellence.
+
+| Cell & Cycle Condition | Delivered Capacity | Coulomb Counting MAE (%) | ACO-Tuned EKF MAE (%) | Adaptive EKF (Sage-Husa) MAE (%) | EKF Max Error (%) |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **B0005 #1** | 1.86 Ah | 10.74% | **0.66%** | **0.72%** | 2.21% |
+| **B0005 #60** | 1.67 Ah | 6.60% | **3.65%** | **3.53%** | 6.82% |
+| **B0005 #120** | 1.40 Ah | 7.26% | **4.89%** | **4.71%** | 9.44% |
+| **B0007 #1** | 1.89 Ah | 11.94% | **0.93%** | **1.11%** | 2.47% |
+| **B0007 #60** | 1.71 Ah | 8.01% | **2.74%** | **2.64%** | 4.97% |
+| **B0007 #120** | 1.51 Ah | 6.04% | **3.78%** | **3.65%** | 7.26% |
+| **B0006 #120** | 1.36 Ah | 7.64% | **2.28%** | **2.43%** | 5.84% |
+
+---
+
+### Table 3: Fault Injection Diagnostic Coverage (UDDS Drive Cycle)
+
+| Injected Fault Mode ($t=900\text{--}1200\text{ s}$) | Filter MAE (%) | Max Error (%) | Diagnostic Flag Status | Safety Behavior |
+| :--- | :---: | :---: | :---: | :--- |
+| **Mode 0: Normal (No Fault)** | 0.146% | 0.40% | Clear (0) | Baseline nominal tracking |
+| **Mode 1: Current Sensor Bias (+0.25 A)** | 0.371% | 0.75% | Unflagged (Silent Drift) | Error bounded to 0.75% via closed-loop voltage feedback |
+| **Mode 2: Voltage Sensor Glitches ($\pm 0.5\text{ V}$)** | 0.144% | 0.40% | **Detected (Bit 8: Residual Rejected)** | Outliers rejected by NIS gating; zero error impact |
+| **Mode 3: Thermistor Disconnect (Open Circuit)** | 0.147% | 0.40% | **Detected (Bit 2: Temp Out of Range)** | Fail-safe Arrhenius parameter clamping active |
+
+<!-- RESULTS_TABLE_END -->
+
+*(Note: The above tables are automatically populated from `simulink_matlab/results/bms_regression_results.csv` via `python tools/make_results_table.py --update README.md`.)*
 
 ---
 
@@ -88,22 +136,21 @@ Tested under dynamic driving cycles with $+10\%$ initial estimation error:
 python python/main.py
 python python/benchmark_suite.py
 python python/nasa_benchmark_runner.py
-python python/main_ultimate.py     # SOTA pipeline (needs PyTorch)
 ```
 
 ### 2. Run MATLAB & Simulink Simulation
 In MATLAB Command Window:
 ```matlab
 cd simulink_matlab
-run_aco_ekf_simulation          % Standalone MATLAB simulation
 run_simulink('udds', 0)         % Simulated plant + EKF model (profile, fault mode, init error, seed)
-run_sota_simulink('B0005', 1)   % Replay a real NASA discharge through the Simulink model
-run_bms_regression              % Back-to-back, Monte Carlo, fault-injection, real-data checks
-build_bms_models                % Regenerate the .slx files from lib/
+run_sota_simulink('B0005', 1)   % Replay real NASA discharge through Simulink model
+animate_bms_live                % Launch interactive real-time dashboard GUI
+run_bms_regression              % Run full 33-check automated test harness
+build_bms_models                % Programmatically regenerate models from lib/
 ```
 
 ### 3. Compile Embedded ANSI C Firmware
 ```bash
-gcc -O2 c_firmware/bms_ekf.c c_firmware/main_test.c -o c_firmware/bms_ekf_test.exe -lm
-.\c_firmware\bms_ekf_test.exe
+gcc -std=c99 -O2 -Wall -Wextra -Wconversion -pedantic c_firmware/bms_ekf.c c_firmware/main_test.c -o c_firmware/bms_ekf_test.exe -lm
+./c_firmware/bms_ekf_test.exe
 ```

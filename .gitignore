@@ -48,3 +48,6 @@ models/*.pth
 
 # Third-party copyrighted paper - keep local only
 docs/references/*.pdf
+
+# Generated Word documents (generate on demand via python/convert_notes_to_docx.py)
+*.docx

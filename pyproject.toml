@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aco-ekf-soc-estimation"
+version = "0.1.0"
+description = "Thermal-Adaptive 2-RC Multi-Objective Ant Colony Optimized Extended Kalman Filter for Li-Ion Battery SOC/SOH Estimation"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "BMS Research Team" }
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Topic :: Scientific/Engineering",
+    "License :: OSI Approved :: MIT License"
+]
+dependencies = [
+    "numpy==1.26.4",
+    "scipy==1.15.3",
+    "matplotlib==3.10.6",
+    "python-docx==1.2.0",
+    "pytest==9.1.1",
+    "pandas==2.3.2",
+    "pyyaml==6.0.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.0",
+    "ruff>=0.3.0",
+]

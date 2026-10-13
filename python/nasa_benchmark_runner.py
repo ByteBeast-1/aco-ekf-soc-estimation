@@ -19,10 +19,11 @@ from visualization import compute_metrics, C_BG, C_REF, C_EKF, C_ACO
 
 def run_nasa_benchmark():
     print("=" * 75)
-    print("  NASA AMES LABORATORY CELL B0005 REAL HARDWARE BENCHMARK")
+    print("  SYNTHETIC B0005 DISCHARGE BENCHMARK (data/SYNTHETIC_B0005.csv)")
+    print("  (Note: Real experimental NASA data is in data_raw/*.mat used by MATLAB)")
     print("=" * 75)
 
-    data_file = os.path.join("data", "NASA_B0005.csv")
+    data_file = os.path.join("data", "SYNTHETIC_B0005.csv")
     if not os.path.exists(data_file):
         from download_nasa_dataset import download_nasa_b0005
         download_nasa_b0005()

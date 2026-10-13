@@ -21,11 +21,11 @@ from visualization import compute_metrics
 
 def load_nasa_dataset():
     """
-    Download (if needed) and parse the official NASA Ames B0005 18650 cell dataset.
+    Load synthetic B0005 benchmark CSV (data/SYNTHETIC_B0005.csv).
     """
-    data_file = os.path.join("data", "NASA_B0005.csv")
+    data_file = os.path.join("data", "SYNTHETIC_B0005.csv")
     if not os.path.exists(data_file):
-        print("  [Data] NASA B0005 CSV not found. Downloading...")
+        print("  [Data] SYNTHETIC_B0005.csv not found. Generating/downloading...")
         from download_nasa_dataset import download_nasa_b0005
         download_nasa_b0005()
 

@@ -22,10 +22,10 @@ NASA_B0005_URL = "https://raw.githubusercontent.com/philipp-s/nasa-battery-datas
 def download_nasa_b0005():
     output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "data")
     os.makedirs(output_dir, exist_ok=True)
-    file_path = os.path.join(output_dir, "NASA_B0005.csv")
+    file_path = os.path.join(output_dir, "SYNTHETIC_B0005.csv")
 
     if os.path.exists(file_path):
-        print(f"  [NASA Downloader] Dataset already exists at '{file_path}'")
+        print(f"  [Synthetic Downloader/Generator] Dataset already exists at '{file_path}'")
         return file_path
 
     print("  [NASA Downloader] Downloading official NASA B0005 Li-ion battery dataset...")
