@@ -13,7 +13,8 @@ function ok = run_bms_regression(opts)
 %     0. Model quality : no dangling ports, strict diagnostics, bus/unit/dictionary consistency
 %     6. Precision     : estimator in 32-bit float (the firmware's arithmetic) versus 64-bit double
 %     7. SIL           : compiled C firmware versus the MATLAB float32 estimator on identical measurements
-%   Options: struct('simulink', false) skips suites 0 and 1; struct('sil', false) skips suite 7.
+%     8. Unified model : bms_unified (SIM and REPLAY) == legacy models within 1e-9
+%   Options: struct('simulink', false) skips suites 0, 1, and 8; struct('sil', false) skips suite 7.
 %   Results -> results/bms_regression_results.csv and figures/15_*.png
     if nargin < 1,  opts = struct();  end
     if ~isfield(opts, 'simulink'),  opts.simulink = true;  end
@@ -72,11 +73,11 @@ function ok = run_bms_regression(opts)
 
         fprintf('\n== 0. Model quality (structure, interfaces, diagnostics) ==\n');
         n_un = 0;  strict_ok = true;
-        for mname = {'advanced_bms_aco_ekf', 'sota_bms_aco_ekf'}
+        for mname = {'advanced_bms_aco_ekf', 'sota_bms_aco_ekf', 'bms_estimator_ref', 'bms_unified'}
             [nu, so_] = model_quality(mname{1});
             n_un = n_un + nu;  strict_ok = strict_ok && so_;
         end
-        check('Models: no unconnected ports', n_un == 0, sprintf('%d unconnected ports in both models', n_un));
+        check('Models: no unconnected ports', n_un == 0, sprintf('%d unconnected ports across all 4 models', n_un));
         check('Models: strict diagnostics are errors (dangling ports/lines, algebraic loops, bus mismatch)', strict_ok, 'all enabled');
         dq = dictionary_quality();
         check('Data dictionary: every bus element has a description and physical ones a unit', dq.units_ok, sprintf('%d elements checked', dq.n_elements));
@@ -246,6 +247,38 @@ function ok = run_bms_regression(opts)
         check('C firmware vs MATLAB float32: diagnostic codes identical', all([sil.flags_equal]), sprintf('%d flagged samples compared', sum([sil.n_flagged])));
     end
 
+    %% ---- 8. Unified model equivalence ----------------------------------------------
+    if opts.simulink
+        fprintf('\n== 8. Unified model equivalence: bms_unified vs legacy models ==\n');
+        % Synthetic equivalence: bms_unified (BMS_Source = 1) vs advanced_bms_aco_ekf
+        bms_setup('synthetic', true);
+        so_adv = sim('advanced_bms_aco_ekf');  d_adv = so_adv.bms_log;
+        bms_setup('unified', true);  BMS_Source = 1;
+        so_uni_s = sim('bms_unified');  d_uni_s = so_uni_s.bms_log;
+        e_syn_ekf = max(abs(d_adv(:, 2) - d_uni_s(:, 2)));
+        e_syn_plt = max(abs(d_adv(:, 1) - d_uni_s(:, 1)));
+        check('Unified (SIM): EKF SOC == advanced_bms_aco_ekf', e_syn_ekf < 1e-9, sprintf('max diff %.2e %%', e_syn_ekf));
+        check('Unified (SIM): plant SOC == advanced_bms_aco_ekf', e_syn_plt < 1e-9, sprintf('max diff %.2e %%', e_syn_plt));
+        bdclose('advanced_bms_aco_ekf');
+
+        % Real-data equivalence: bms_unified (BMS_Source = 2) vs sota_bms_aco_ekf
+        bms_setup('nasa', true);
+        so_sota = sim('sota_bms_aco_ekf');  d_sota = so_sota.bms_log;
+        bms_setup('nasa', true);  BMS_Source = 2;
+        so_uni_n = sim('bms_unified');  d_uni_n = so_uni_n.bms_log;
+        e_nasa_ekf = max(abs(d_sota(:, 2) - d_uni_n(:, 2)));
+        e_nasa_ada = max(abs(d_sota(:, 3) - d_uni_n(:, 3)));
+        e_nasa_cap = max(abs(d_sota(:, 12) - d_uni_n(:, 12)));
+        check('Unified (REPLAY): baseline EKF == sota_bms_aco_ekf', e_nasa_ekf < 1e-9, sprintf('max diff %.2e %%', e_nasa_ekf));
+        check('Unified (REPLAY): adaptive EKF == sota_bms_aco_ekf', e_nasa_ada < 1e-9, sprintf('max diff %.2e %%', e_nasa_ada));
+        check('Unified (REPLAY): capacity-state SOC == sota_bms_aco_ekf', e_nasa_cap < 1e-9, sprintf('max diff %.2e %%', e_nasa_cap));
+        bdclose('sota_bms_aco_ekf');
+        bdclose('bms_unified');
+
+        rows(end + 1, :) = {'unified_eq', 'synthetic_ekf', e_syn_ekf, e_syn_plt, NaN, NaN}; %#ok<AGROW>
+        rows(end + 1, :) = {'unified_eq', 'nasa_replay', e_nasa_ekf, e_nasa_ada, e_nasa_cap, NaN}; %#ok<AGROW>
+    end
+
     %% ---- report -------------------------------------------------------------------------------------
     T = cell2table(rows, 'VariableNames', {'suite', 'case', 'v1', 'v2', 'v3', 'v4'});
     writetable(T, fullfile(outdir, 'bms_regression_results.csv'));
@@ -280,7 +313,7 @@ function q = dictionary_quality()
     sec = getSection(dd, 'Design Data');
     physical = {'SOC_pct', 'Voltage_V', 'Current_A', 'Temperature_K', 'Innovation_V', 'R0_Ohm', 'SOC_Coulomb_pct'};
     q.units_ok = true;  q.n_elements = 0;
-    for b = {'BMS_PlantTruth', 'BMS_Measurement', 'BMS_Estimate'}
+    for b = {'BMS_PlantTruth', 'BMS_Measurement', 'BMS_Estimate', 'BMS_Reference'}
         bus = getValue(getEntry(sec, b{1}));
         for el = bus.Elements(:)'
             q.n_elements = q.n_elements + 1;

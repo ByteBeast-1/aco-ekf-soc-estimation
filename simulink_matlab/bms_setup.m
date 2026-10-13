@@ -24,17 +24,43 @@ function bms_setup(variant, force)
 
     if strcmp(variant, 'nasa')
         sc = bms_replay_scenario('B0005', 1, -0.15);
-        put('NASA_Replay',    [sc.t(:), sc.I(:), sc.V(:), sc.T(:), sc.soc_ref(:)]);
-        put('NASA_SOC_Guess', sc.soc_ref(1) + sc.init_err);
-        put('NASA_StopTime',  sc.t(end));
-        put('NASA_CapRatio',  sc.cap_Ah / 2.0);
+        put('NASA_Replay',              [sc.t(:), sc.I(:), sc.V(:), sc.T(:), sc.soc_ref(:)]);
+        put('NASA_SOC_Guess',           sc.soc_ref(1) + sc.init_err);
+        put('NASA_StopTime',            sc.t(end));
+        put('NASA_CapRatio',            sc.cap_Ah / 2.0);
+        put('BMS_SOC_Guess',            sc.soc_ref(1) + sc.init_err);
+        put('BMS_StopTime',             sc.t(end));
+        put('BMS_Source',               2);  % 2 = REPLAY
+        put('BMS_InjectFaultsOnReplay', 0);
+        put('BMS_EstimatorSet',         0);  % 0 = all estimators
+    elseif strcmp(variant, 'unified')
+        % Default to SIM source with NASA data also available
+        [I, soc0] = bms_profile('udds');
+        put('Drive_Profile',            [(0:numel(I) - 1)', I(:)]);
+        put('BMS_SOC0',                 soc0);
+        put('BMS_SOC_Guess',            soc0 - 0.10);
+        put('BMS_Seed',                 1);
+        put('BMS_FaultMode',            0);
+        put('BMS_StopTime',             numel(I) - 1);
+        put('BMS_Source',               1);  % 1 = SIM, 2 = REPLAY
+        put('BMS_InjectFaultsOnReplay', 0);
+        put('BMS_EstimatorSet',         0);
+
+        sc = bms_replay_scenario('B0005', 1, -0.15);
+        put('NASA_Replay',              [sc.t(:), sc.I(:), sc.V(:), sc.T(:), sc.soc_ref(:)]);
+        put('NASA_SOC_Guess',           sc.soc_ref(1) + sc.init_err);
+        put('NASA_StopTime',            sc.t(end));
+        put('NASA_CapRatio',            sc.cap_Ah / 2.0);
     else
         [I, soc0] = bms_profile('udds');
-        put('Drive_Profile', [(0:numel(I) - 1)', I(:)]);
-        put('BMS_SOC0',      soc0);
-        put('BMS_SOC_Guess', soc0 - 0.10);
-        put('BMS_Seed',      1);
-        put('BMS_FaultMode', 0);
-        put('BMS_StopTime',  numel(I) - 1);
+        put('Drive_Profile',            [(0:numel(I) - 1)', I(:)]);
+        put('BMS_SOC0',                 soc0);
+        put('BMS_SOC_Guess',            soc0 - 0.10);
+        put('BMS_Seed',                 1);
+        put('BMS_FaultMode',            0);
+        put('BMS_StopTime',             numel(I) - 1);
+        put('BMS_Source',               1);  % 1 = SIM
+        put('BMS_InjectFaultsOnReplay', 0);
+        put('BMS_EstimatorSet',         0);
     end
 end

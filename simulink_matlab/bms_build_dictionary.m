@@ -39,6 +39,10 @@ function bms_build_dictionary()
         'R_cov_V2',         '',        'Measurement-noise variance used by the filter'; ...
         'CapacityRatio',    '',        'Estimated capacity divided by nominal capacity'}));
 
+    addEntry(sec, 'BMS_Reference', make_bus({ ...
+        'SOC_pct',       'percent', 'Reference state of charge'; ...
+        'Source_Tag',    '',        'Source tag (0: SIM, 1: REPLAY)'}));
+
     Ps = bms_params('synthetic');  Pn = bms_params('nasa');
     addEntry(sec, 'BMS_Q',  make_param(Ps.Q(:), 'Process-noise variances [SOC; V1; V2], ACO-tuned, simulated cell'));
     addEntry(sec, 'BMS_R',  make_param(Ps.R,    'Voltage measurement-noise variance, ACO-tuned, simulated cell'));
