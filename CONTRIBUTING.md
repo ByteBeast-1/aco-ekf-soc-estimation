@@ -1,7 +1,7 @@
 # Contributing to 2-RC Thermal MO-ACO-EKF BMS
 
 Thank you for contributing to the 2-RC Thermal MO-ACO-EKF Battery Management System project.  
-To maintain automotive-grade code quality and reproducibility, all contributions must follow these guidelines.
+To maintain model-based design, automotive-style code quality and reproducibility, all contributions must follow these guidelines.
 
 ---
 

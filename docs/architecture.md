@@ -1,10 +1,11 @@
 # 🏛️ BMS Architecture Overview
 
-The **Thermal-Adaptive 2-RC MO-ACO-EKF System** is architected for automotive Model-Based Design (MBD), providing mathematical equivalence across Python simulation, Simulink SIL simulation, and ANSI C microcontroller firmware.
+The **Thermal-Adaptive 2-RC MO-ACO-EKF System** is architected for model-based design, automotive-style workflows, providing mathematical equivalence across Python simulation, Simulink SIL simulation, and ANSI C microcontroller firmware.
 
 ---
 
 ## 🧩 High-Level System Architecture
+
 
 ```mermaid
 graph TD

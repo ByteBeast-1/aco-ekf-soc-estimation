@@ -1,15 +1,15 @@
-# 📘 Master Engineering Notebook: SOTA Adaptive EKF & NASA Hardware Verification
+# 📘 Master Engineering Notebook: Adaptive EKF & NASA Real Measured Cell Data Verification
 **Target Simulink Architecture:** `simulink_matlab/sota_bms_aco_ekf.slx`  
-**Application Domain:** Real-World Hardware Replay, State-of-the-Art (SOTA) Adaptive Filtering, Online SOH/SOC Dual Estimation  
+**Application Domain:** Real-World Measured Cell Data Replay, Adaptive Filtering, Online SOH/SOC Dual Estimation  
 **Validation Benchmark:** NASA Ames Research Center Prognostics Center of Excellence (PCoE) Li-ion Battery Aging Dataset (Cells B0005, B0006, B0007)  
-**Standard Compliance:** ISO 26262 ASIL-D Architectural Principles, MISRA-C Compatible Embedded Algorithms  
+**Standard Compliance:** Model-Based Design, Automotive-Style Architectural Principles  
 
 ---
 
 # 📑 Master Table of Contents (10-Section Structure)
-* [Section 1: Executive Overview & The Real-World Hardware Challenge](#section-1-executive-overview--the-real-world-hardware-challenge)
+* [Section 1: Executive Overview & The Real-World Measured Cell Data Challenge](#section-1-executive-overview--the-real-world-measured-cell-data-challenge)
 * [Section 2: Complete System Architecture & High-Resolution ASCII Wiring Diagram](#section-2-complete-system-architecture--high-resolution-ascii-wiring-diagram)
-* [Section 3: Input Pipeline & NASA Hardware Signal Processing](#section-3-input-pipeline--nasa-hardware-signal-processing)
+* [Section 3: Input Pipeline & NASA Real Measured Cell Signal Processing](#section-3-input-pipeline--nasa-real-measured-cell-signal-processing)
 * [Section 4: Controller 1 — EKF_Baseline (Conventional MO-ACO-Tuned EKF)](#section-4-controller-1--ekf_baseline-conventional-mo-aco-tuned-ekf)
 * [Section 5: Controller 2 — SOTA_Adaptive_Controller (Sage-Husa Adaptive Filtering & R0 Tracking)](#section-5-controller-2--sota_adaptive_controller-sage-husa-adaptive-filtering--r0-tracking)
 * [Section 6: Controller 3 — SOH_Capacity_Estimator (4-State Joint SOC-SOH Estimator)](#section-6-controller-3--soh_capacity_estimator-4-state-joint-soc-soh-estimator)
@@ -20,7 +20,7 @@
 
 ---
 
-# Section 1: Executive Overview & The Real-World Hardware Challenge
+# Section 1: Executive Overview & The Real-World Measured Cell Data Challenge
 
 ## 1.1 The Reality Gap: Synthetic Models vs. Physical Chemistry
 In simulation environments (such as our synthetic testbench `advanced_bms_aco_ekf.slx`), battery behavior is governed by idealized differential equations. In that virtual world:
@@ -140,7 +140,7 @@ The Simulink model `sota_bms_aco_ekf.slx` implements an automotive Model-Based D
 
 ---
 
-# Section 3: Input Pipeline & NASA Hardware Signal Processing
+# Section 3: Input Pipeline & NASA Real Measured Cell Signal Processing
 
 ## 3.1 `NASA_Cell_Replay` (From Workspace Source)
 * **Simulink Path:** `sota_bms_aco_ekf/NASA_Cell_Replay`

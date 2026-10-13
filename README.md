@@ -4,10 +4,10 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](pyproject.toml)
 [![MATLAB R2024b](https://img.shields.io/badge/MATLAB-R2024b-orange.svg)](simulink_matlab/)
 [![Simulink Models](https://img.shields.io/badge/Simulink-MBD-red.svg)](simulink_matlab/)
-[![Embedded C](https://img.shields.io/badge/C99-MISRA--Ready-green.svg)](c_firmware/)
-[![Regression Suite](https://img.shields.io/badge/Regression-33%2F33%20PASS-brightgreen.svg)](results/baseline_regression_20261013.txt)
+[![Embedded C](https://img.shields.io/badge/C99-gcc%20--Wall%20--Wextra%20--Wconversion%20clean-brightgreen.svg)](c_firmware/)
+[![Regression Suite](https://img.shields.io/badge/Regression-33%2F33%20PASS-brightgreen.svg)](simulink_matlab/results/baseline_regression_20261013.txt)
 
-An automotive-grade, multi-platform Model-Based Design (MBD) engineering implementation of the **Thermal-Adaptive 2-RC Multi-Objective Ant Colony Optimized Extended Kalman Filter (MO-ACO-EKF)** for Lithium-Ion Battery State-of-Charge (SOC) and State-of-Health (SOH) estimation.
+A model-based design, automotive-style, multi-platform engineering implementation of the **Thermal-Adaptive 2-RC Multi-Objective Ant Colony Optimized Extended Kalman Filter (MO-ACO-EKF)** for Lithium-Ion Battery State-of-Charge (SOC) and State-of-Health (SOH) estimation.
 
 Extends the foundational research of:
 > Kannan M, Sundareswaran K, et al., *"Ant Colony Optimized Extended Kalman Filter for State of Charge Estimation of Lithium-Ion Battery"*, **IEEE Transactions on Instrumentation and Measurement**, Vol. 74, 2025.
@@ -16,10 +16,10 @@ Extends the foundational research of:
 
 ## 🌟 4 Key Engineering Novelties
 
-1. **Arrhenius Thermal-Adaptive 2-RC Physics ($T$-2RC):** 4-State Vector $\mathbf{x} = [\text{SOC}, V_1, V_2, \text{CapacityRatio}]^T$ with dynamic parameter tracking $R_0(T), R_1(T), R_2(T)$ solving the IEEE basepaper's fixed-temperature limitation.
-2. **Multi-Objective Ant Colony Optimization (MO-ACOR):** Dual-objective continuous AI swarm optimization in log-space minimizing both steady-state tracking error (MSE) AND initial offset convergence time ($<90\text{ s}$ from $\pm 20\%$ error).
-3. **Joseph-Form 32-Bit ANSI C Firmware:** Zero-malloc, statically bounded C99 code (`<250 bytes` RAM state) compiled and verified against MATLAB via Software-in-the-Loop (SIL) within $0.00058\%$ SOC discrepancy.
-4. **Automotive Model-Based Design (MBD) Architecture:** Complete 3-subsystem visual block diagram (`Battery_Physics_Plant`, `Sensor_Measurement`, and `ACO_EKF_Controller`) coupled via typed bus objects in `bms_data.sldd`.
+1. **Arrhenius Thermal-Adaptive 2-RC Physics ($T$-2RC):** Dynamic parameter tracking $R_0(T), R_1(T), R_2(T)$ solving the IEEE basepaper's fixed-temperature limitation. *(Note: The Python research pipeline uses a 3-state vector $\mathbf{x} = [\text{SOC}, V_1, V_2]^T$; the MATLAB/Simulink MBD suite uses an extended 4-state formulation $\mathbf{x} = [\text{SOC}, V_1, V_2, \text{CapacityRatio}]^T$ with an optional online capacity state).*
+2. **Multi-Objective Ant Colony Optimization (MO-ACOR):** Dual-objective continuous AI swarm optimization in log-space minimizing both steady-state tracking error (MSE) and initial offset convergence time.
+3. **Joseph-Form 32-Bit ANSI C Firmware:** Zero-malloc, statically bounded C99 code (`<250 bytes` RAM state) verified clean under `gcc -Wall -Wextra -Wconversion -pedantic` and matching MATLAB via Software-in-the-Loop (SIL) within $0.00058\%$ SOC discrepancy.
+4. **Model-Based Design (MBD) Architecture:** Complete 3-subsystem visual block diagram (`Battery_Physics_Plant`, `Sensor_Measurement`, and `ACO_EKF_Controller`) coupled via typed bus objects in `bms_data.sldd`.
 
 ---
 
@@ -97,10 +97,10 @@ aco-ekf-soc-estimation/
 
 ---
 
-### Table 2: Real Hardware Validation (NASA Ames Laboratory Cells, Out-of-Sample)
+### Table 2: Real Measured Cell Data Validation (NASA Ames Laboratory Cells, Out-of-Sample)
 
 > [!IMPORTANT]
-> **Experimental Hardware Integrity:** Model parameters and ACO covariances were calibrated strictly on Cell **B0006** (cycles #1 and #60). Cells **B0005** and **B0007** (and aged cycles) are completely **unseen, out-of-sample physical hardware tests** from the NASA Ames Prognostics Center of Excellence.
+> **Experimental Data Integrity:** Model parameters and ACO covariances were calibrated strictly on Cell **B0006** (cycles #1 and #60). Cells **B0005** and **B0007** (and aged cycles) are completely **unseen, out-of-sample real measured cell data tests** from the NASA Ames Prognostics Center of Excellence.
 
 | Cell & Cycle Condition | Delivered Capacity | Coulomb Counting MAE (%) | ACO-Tuned EKF MAE (%) | Adaptive EKF (Sage-Husa) MAE (%) | EKF Max Error (%) |
 | :--- | :---: | :---: | :---: | :---: | :---: |
@@ -121,7 +121,10 @@ aco-ekf-soc-estimation/
 | **Mode 0: Normal (No Fault)** | 0.146% | 0.40% | Clear (0) | Baseline nominal tracking |
 | **Mode 1: Current Sensor Bias (+0.25 A)** | 0.371% | 0.75% | Unflagged (Silent Drift) | Error bounded to 0.75% via closed-loop voltage feedback |
 | **Mode 2: Voltage Sensor Glitches ($\pm 0.5\text{ V}$)** | 0.144% | 0.40% | **Detected (Bit 8: Residual Rejected)** | Outliers rejected by NIS gating; zero error impact |
-| **Mode 3: Thermistor Disconnect (Open Circuit)** | 0.147% | 0.40% | **Detected (Bit 2: Temp Out of Range)** | Fail-safe Arrhenius parameter clamping active |
+| **Mode 3: Thermistor Disconnect (Open Circuit)** | 0.147% | 0.40% | **Detected (Bit 2: Temp Out of Range)** | Holds last good temperature (`T = st.T_last`) |
+
+> [!NOTE]
+> **Convergence Window Exclusion:** All error metrics (MAE and max error) in the tables above exclude the initial 120 s convergence window (`skip = 120 s` in `simulink_matlab/run_bms_regression.m`), evaluating steady-state performance once initial offsets have settled.
 
 <!-- RESULTS_TABLE_END -->
 

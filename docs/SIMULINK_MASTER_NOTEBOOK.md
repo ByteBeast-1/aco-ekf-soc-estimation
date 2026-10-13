@@ -471,7 +471,7 @@ MO-ACO-EKF (Our System)     Thermal 2-RC      1.85e-7      <0.0100%     0.035%  
 ===================================================================================================
 ```
 
-## 9.2 Real Hardware Validation (NASA Ames Dataset Replay)
+## 9.2 Real Measured Cell Data Validation (NASA Ames Dataset Replay)
 To confirm performance extends beyond mathematical simulations, the algorithm was benchmarked against experimental laboratory data from the **NASA Ames Prognostics Center of Excellence (Cell B0005)**:
 * **Operating Profile:** Repeated constant-current discharge cycles down to 2.7V cutoff.
 * **Degradation Horizon:** Evaluated across capacity degradation from 2.0 Ah down to 1.3 Ah.
@@ -490,10 +490,10 @@ To confirm performance extends beyond mathematical simulations, the algorithm wa
 ### Q3: *"How does MO-ACO differ from standard Ant Colony Optimization?"*
 > **Candidate Response:** "Standard ACO is designed for discrete combinatorial problems (like the Traveling Salesperson Problem). Our implementation uses Continuous ACOR, which samples continuous probability density functions. It is also Multi-Objective, optimizing steady-state tracking error ($J_1$) and convergence time ($J_2$) simultaneously to produce balanced, robust tuning parameters."
 
-### Q4: *"Why keep synthetic simulation and NASA hardware replay in separate models?"*
-> **Candidate Response:** "In automotive engineering (ISO 26262), the System Under Test must be decoupled from test harnesses. The synthetic model (`advanced_bms_aco_ekf.slx`) acts as a closed-loop plant simulation for dynamic drive cycles. The NASA model (`sota_bms_aco_ekf.slx`) serves as an open-loop hardware replay bench. Keeping them separate prevents experimental test vectors from contaminating production code generation pipelines."
+### Q4: *"Why keep synthetic simulation and NASA real measured cell data replay in separate models?"*
+> **Candidate Response:** "In automotive engineering, the System Under Test must be decoupled from test harnesses. The synthetic model (`advanced_bms_aco_ekf.slx`) acts as a closed-loop plant simulation for dynamic drive cycles. The NASA model (`sota_bms_aco_ekf.slx`) serves as an open-loop real measured cell data replay bench. Keeping them separate prevents experimental test vectors from contaminating production code generation pipelines."
 
 ---
 
 ## 🏁 Summary
-This engineering notebook documents the complete theoretical, architectural, and mathematical implementation of the **Thermal-Adaptive 2-RC MO-ACO-EKF Battery Management System**. The implementation provides an automotive-grade solution bridging advanced control theory, electrochemistry, and production-grade embedded software.
+This engineering notebook documents the complete theoretical, architectural, and mathematical implementation of the **Thermal-Adaptive 2-RC MO-ACO-EKF Battery Management System**. The implementation provides a model-based design, automotive-style solution bridging advanced control theory, electrochemistry, and production-grade embedded software.

@@ -6,7 +6,7 @@ simulink_matlab/results/bms_regression_results.csv.
 
 Outputs:
   1. Model-matched Synthetic (Monte Carlo 40 runs)
-  2. Real NASA Hardware (Out-of-sample cells B0005, B0007, aged B0006)
+  2. Real NASA Measured Cell Data (Out-of-sample cells B0005, B0007, aged B0006)
   3. Fault Injection Diagnostic Coverage
 
 Can print to stdout or patch directly into README.md between marker comments:
@@ -61,12 +61,12 @@ def format_tables(rows):
     lines.append("")
 
     # ---------------------------------------------------------
-    # 2. Real NASA Hardware Data (Out-of-sample)
+    # 2. Real NASA Measured Cell Data (Out-of-sample)
     # ---------------------------------------------------------
-    lines.append("### Table 2: Real Hardware Validation (NASA Ames Laboratory Cells, Out-of-Sample)")
+    lines.append("### Table 2: Real Measured Cell Data Validation (NASA Ames Laboratory Cells, Out-of-Sample)")
     lines.append("")
     lines.append("> [!IMPORTANT]")
-    lines.append("> **Experimental Hardware Integrity:** Model parameters and ACO covariances were calibrated strictly on Cell **B0006** (cycles #1 and #60). Cells **B0005** and **B0007** (and aged cycles) are completely **unseen, out-of-sample physical hardware tests** from the NASA Ames Prognostics Center of Excellence.")
+    lines.append("> **Experimental Data Integrity:** Model parameters and ACO covariances were calibrated strictly on Cell **B0006** (cycles #1 and #60). Cells **B0005** and **B0007** (and aged cycles) are completely **unseen, out-of-sample real measured cell data tests** from the NASA Ames Prognostics Center of Excellence.")
     lines.append("")
     lines.append("| Cell & Cycle Condition | Delivered Capacity | Coulomb Counting MAE (%) | ACO-Tuned EKF MAE (%) | Adaptive EKF (Sage-Husa) MAE (%) | EKF Max Error (%) |")
     lines.append("| :--- | :---: | :---: | :---: | :---: | :---: |")
@@ -113,7 +113,11 @@ def format_tables(rows):
         elif "voltage glitches" in case:
             lines.append(f"| **Mode 2: Voltage Sensor Glitches ($\\pm 0.5\\text{{ V}}$)** | {mae:.3f}% | {max_err:.2f}% | **Detected (Bit 8: Residual Rejected)** | Outliers rejected by NIS gating; zero error impact |")
         elif "thermistor open" in case:
-            lines.append(f"| **Mode 3: Thermistor Disconnect (Open Circuit)** | {mae:.3f}% | {max_err:.2f}% | **Detected (Bit 2: Temp Out of Range)** | Fail-safe Arrhenius parameter clamping active |")
+            lines.append(f"| **Mode 3: Thermistor Disconnect (Open Circuit)** | {mae:.3f}% | {max_err:.2f}% | **Detected (Bit 2: Temp Out of Range)** | Holds last good temperature (`T = st.T_last`) |")
+
+    lines.append("")
+    lines.append("> [!NOTE]")
+    lines.append("> **Convergence Window Exclusion:** All error metrics (MAE and max error) in the tables above exclude the initial 120 s convergence window (`skip = 120 s` in `simulink_matlab/run_bms_regression.m`), evaluating steady-state performance once initial offsets have settled.")
 
     return "\n".join(lines)
 

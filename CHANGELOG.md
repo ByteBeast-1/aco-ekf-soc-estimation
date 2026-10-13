@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - `tools/make_results_table.py`: Automated tool to generate reproducible Markdown benchmark tables directly from `simulink_matlab/results/bms_regression_results.csv`.
-- `results/baseline_regression_20261013.txt`: Baseline verification log documenting 33/33 passing checks before Phase 1.
+- `simulink_matlab/results/baseline_regression_20261013.txt`: Baseline verification log documenting 33/33 passing checks before Phase 1.
 - `LICENSE`: MIT open-source license.
 - `CONTRIBUTING.md`: Engineering workflow, branch standards, coding guidelines.
 - `pyproject.toml` & `environment.yml`: Modern Python packaging and conda environment specifications.
@@ -19,9 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - `README.md`:
-  - Replaced idealized synthetic metrics with verifiable dual tables: **Table 1: Model-Matched Synthetic Benchmarks** and **Table 2: Real Hardware Validation (NASA Ames Laboratory)**.
-  - Corrected state-space description to **4-state Joseph-form formulation** with optional capacity state.
-  - Corrected Simulink plant description from "2-subsystem" to **3-subsystem architecture** (`Battery_Physics_Plant`, `Sensor_Measurement`, `ACO_EKF_Controller`).
+  - Replaced idealized synthetic metrics with verifiable dual tables: **Table 1: Model-Matched Synthetic Benchmarks** and **Table 2: Real Measured Cell Data Validation (NASA Ames Laboratory)**.
+  - Corrected state-space description noting Python uses a 3-state pipeline and MATLAB uses an extended 4-state formulation.
+  - Corrected Simulink plant description to **3-subsystem architecture** (`Battery_Physics_Plant`, `Sensor_Measurement`, `ACO_EKF_Controller`).
   - Standardized terminology from "SOTA" to **Adaptive EKF (Sage-Husa R)**.
 - Renamed `data/NASA_B0005.csv` to `data/SYNTHETIC_B0005.csv` to make it clear that it contains synthetic test-bench data, distinguishing it from physical raw `.mat` files in `data_raw/`.
 - `requirements.txt`: Pinned exact package versions (`numpy==1.26.4`, `scipy==1.15.3`, `matplotlib==3.10.6`, etc.).
