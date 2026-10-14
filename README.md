@@ -156,6 +156,50 @@ aco-ekf-soc-estimation/
 | **nasa_B0005_aged_120** | `nasa` | Mode 0 | 4.893% | 4.714% | 3.089% | 9.44% | 282 s | 85.2% | None |
 
 
+---
+
+### Table 5: Hyperparameter Tuner Benchmark Comparison (Equal Evaluation Budget & Search Bounds)
+
+> [!NOTE]
+> **Fair Benchmark Methodology & Search Bounds:**
+> Compares 5 hyperparameter discovery methods on the identical 4 log-parameters ($Q_{\mathrm{SOC}}, Q_{V_1}, Q_{V_2}, R$), identical search bounds ($\log_{10} Q \in [-9, -4]$, $\log_{10} R \in [-4, -1]$), and identical fitness evaluation function. Evaluates generalization on held-out test scenarios (unseen drive cycle seeds for synthetic plant; unseen cells B0005 & B0007 for NASA replay) strictly excluding the first 120 s convergence window.
+> - **Stochastic Methods (ACO_R, Random Search):** Evaluated across 5 random seeds (reported as mean $\pm$ std, [min, max]).
+> - **Deterministic Methods (Hand-Tuned, Grid Search, Nelder-Mead):** Run once with single deterministic result.
+> - **Skipped Methods:** Genetic Algorithm (`ga`) and Particle Swarm (`particleswarm`) were skipped because MATLAB Global Optimization Toolbox is not installed in the execution environment.
+
+> [!IMPORTANT]
+> **Tuner Benchmark Summary:** Synthetic plant winner: **ACO R** (mean held-out MAE: 0.159%); Real NASA replay winner: **Grid Search** (mean held-out MAE: 1.998%).
+
+| Optimization Algorithm | Type | Evaluations | Synthetic Held-Out MAE (%) | NASA Held-Out MAE (%) | Mean Runtime (s) |
+| :--- | :---: | :---: | :---: | :---: | :---: |
+| **Hand-Tuned Baseline** | Deterministic | 1 | 0.272% | 5.260% | 0.2 s |
+| **Random Search** | Stochastic (5 seeds) | 200 | 0.163% ± 0.003% [0.159%, 0.166%] | 2.980% ± 0.161% [2.759%, 3.187%] | 35.7 s |
+| **Grid Search** | Deterministic | 192 | 0.161% | **1.998%** | 29.8 s |
+| **Nelder-Mead (fminsearch)** | Deterministic | 200 | 0.160% | 3.172% | 27.0 s |
+| **Continuous ACO (ACO_R)** | Stochastic (5 seeds) | 200 | **0.159% ± 0.000% [0.159%, 0.160%]** | 2.714% ± 0.190% [2.382%, 2.834%] | 78.0 s |
+
+
+---
+
+### Table 6: Widened Search Bounds Benchmark (10 Seeds, Widened by 1 Decade on Each Side)
+
+> [!NOTE]
+> **Widened Search Space Specification & Evaluation Setup:**
+> - Search space widened by 1 decade on each side: $\log_{10} Q_i \in [-10, -3]$ (previously $[-9, -4]$) and $\log_{10} R \in [-5, 0]$ (previously $[-4, -1]$).
+> - Evaluated across 10 independent random seeds for ACO_R and Random_Search, and uniform Grid_Search.
+> - **Per-cell Breakdown:** Evaluated on unseen NASA cells B0005 and B0007 across cycles #1, #60, and #120, reporting fresh (#1) vs aged (#120) performance.
+> - **Overfitting Diagnostics:** Reports training fitness next to held-out MAE to quantify optimization vs generalization gaps.
+
+| Optimization Method | Source | Seeds | Mean Training Cost | Held-Out MAE (%) | Fresh Cells (#1) MAE | Aged Cells (#120) MAE | Bounds Saturation Rate |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Ant Colony Optimization (ACO_R)** | Synthetic | 10 | 1.42e-04 | 0.155% ± 0.000% [0.155%, 0.155%] | N/A (model-matched) | N/A (model-matched) | 50.0% (20/40 params) |
+| **Uniform Grid Search** | Synthetic | 1 | 1.42e-04 | 0.156% | N/A (model-matched) | N/A (model-matched) | 75.0% (3/4 params) |
+| **Random Uniform Search** | Synthetic | 10 | 1.42e-04 | 0.158% ± 0.006% [0.153%, 0.173%] | N/A (model-matched) | N/A (model-matched) | 5.0% (2/40 params) |
+| **Ant Colony Optimization (ACO_R)** | Real NASA | 10 | 6.51e-04 | 5.219% ± 4.242% [2.349%, 15.210%] | 4.21% | 4.93% | 30.0% (12/40 params) |
+| **Uniform Grid Search** | Real NASA | 1 | 7.90e-04 | 2.295% | 0.50% | 3.24% | 50.0% (2/4 params) |
+| **Random Uniform Search** | Real NASA | 10 | 8.03e-04 | 4.677% ± 4.181% [1.812%, 15.463%] | 3.87% | 4.50% | 10.0% (4/40 params) |
+
+
 <!-- RESULTS_TABLE_END -->
 
 *(Note: The above tables are automatically populated from `simulink_matlab/results/bms_regression_results.csv` via `python tools/make_results_table.py --update README.md`.)*

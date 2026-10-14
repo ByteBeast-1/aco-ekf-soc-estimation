@@ -337,7 +337,52 @@ function ok = run_bms_regression(opts)
         single_entry_ok = (exist('run_everything', 'file') == 2);
         check('Single entry point: run_everything.m exists and is callable', single_entry_ok, 'run_everything.m verified');
 
+        % Check hyperparameter tuner comparison results
+        tuner_csv = fullfile(outdir, 'tuner_compare.csv');
+        if ~isfile(tuner_csv)
+            bms_tune_compare('quick');
+        end
+        tuner_exists = isfile(tuner_csv);
+        n_tuner_rows = 0;
+        if tuner_exists
+            t_tuner = readtable(tuner_csv);
+            n_tuner_rows = height(t_tuner);
+            expected_methods = {'Hand_Tuned', 'Random_Search', 'Grid_Search', 'Nelder_Mead', 'ACO_R'};
+            methods_present = all(ismember(expected_methods, unique(t_tuner.method)));
+            has_both_sources = any(strcmp(t_tuner.source, 'synthetic')) && any(strcmp(t_tuner.source, 'nasa'));
+            tuner_ok = methods_present && has_both_sources && (n_tuner_rows >= 10);
+            check('Tuner comparison: results/tuner_compare.csv contains all attempted methods', tuner_ok, ...
+                sprintf('%d rows, %d methods across synthetic & nasa', n_tuner_rows, numel(unique(t_tuner.method))));
+        else
+            check('Tuner comparison: results/tuner_compare.csv contains all attempted methods', false, 'CSV missing');
+        end
+
+        % Check widened tuner study results
+        wide_csv = fullfile(outdir, 'tuner_compare_wide.csv');
+        if ~isfile(wide_csv)
+            bms_tune_study('quick');
+        end
+        wide_exists = isfile(wide_csv);
+        n_wide_rows = 0;
+        if wide_exists
+            t_wide = readtable(wide_csv);
+            n_wide_rows = height(t_wide);
+            expected_wide_methods = {'ACO_R', 'Grid_Search', 'Random_Search'};
+            wide_methods_present = all(ismember(expected_wide_methods, unique(t_wide.method)));
+            has_both_wide_sources = any(strcmp(t_wide.source, 'synthetic')) && any(strcmp(t_wide.source, 'nasa'));
+            has_breakdown_cols = ismember('mae_fresh', t_wide.Properties.VariableNames) && ...
+                                 ismember('mae_aged', t_wide.Properties.VariableNames) && ...
+                                 ismember('mae_B0005_1', t_wide.Properties.VariableNames);
+            wide_ok = wide_methods_present && has_both_wide_sources && has_breakdown_cols && (n_wide_rows >= 6);
+            check('Widened tuner study: results/tuner_compare_wide.csv contains wide-bounds methods and per-cell metrics', wide_ok, ...
+                sprintf('%d rows, fresh/aged breakdown present', n_wide_rows));
+        else
+            check('Widened tuner study: results/tuner_compare_wide.csv contains wide-bounds methods and per-cell metrics', false, 'CSV missing');
+        end
+
         rows(end + 1, :) = {'cross_matrix', 'status', double(cross_exists), n_rows, NaN, NaN}; %#ok<AGROW>
+        rows(end + 1, :) = {'tuner_compare', 'status', double(tuner_exists), n_tuner_rows, NaN, NaN}; %#ok<AGROW>
+        rows(end + 1, :) = {'tuner_compare_wide', 'status', double(wide_exists), n_wide_rows, NaN, NaN}; %#ok<AGROW>
     end
 
     %% ---- report -------------------------------------------------------------------------------------

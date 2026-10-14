@@ -17,6 +17,7 @@ import os
 import sys
 import argparse
 import csv
+import math
 
 
 def load_csv_data(csv_path):
@@ -207,6 +208,181 @@ def format_cross_table(cross_rows):
     return "\n".join(lines)
 
 
+def format_tuner_table(tuner_rows):
+    if not tuner_rows:
+        return ""
+    import math
+
+    lines = []
+    lines.append("### Table 5: Hyperparameter Tuner Benchmark Comparison (Equal Evaluation Budget & Search Bounds)")
+    lines.append("")
+    lines.append("> [!NOTE]")
+    lines.append("> **Fair Benchmark Methodology & Search Bounds:**")
+    lines.append("> Compares 5 hyperparameter discovery methods on the identical 4 log-parameters ($Q_{\\mathrm{SOC}}, Q_{V_1}, Q_{V_2}, R$), identical search bounds ($\\log_{10} Q \\in [-9, -4]$, $\\log_{10} R \\in [-4, -1]$), and identical fitness evaluation function. Evaluates generalization on held-out test scenarios (unseen drive cycle seeds for synthetic plant; unseen cells B0005 & B0007 for NASA replay) strictly excluding the first 120 s convergence window.")
+    lines.append("> - **Stochastic Methods (ACO_R, Random Search):** Evaluated across 5 random seeds (reported as mean $\\pm$ std, [min, max]).")
+    lines.append("> - **Deterministic Methods (Hand-Tuned, Grid Search, Nelder-Mead):** Run once with single deterministic result.")
+    lines.append("> - **Skipped Methods:** Genetic Algorithm (`ga`) and Particle Swarm (`particleswarm`) were skipped because MATLAB Global Optimization Toolbox is not installed in the execution environment.")
+    lines.append("")
+
+    by_src = {"synthetic": {}, "nasa": {}}
+    for r in tuner_rows:
+        src = r["source"]
+        meth = r["method"]
+        if src not in by_src:
+            by_src[src] = {}
+        if meth not in by_src[src]:
+            by_src[src][meth] = []
+        by_src[src][meth].append(r)
+
+    method_order = [
+        ("Hand_Tuned", "Hand-Tuned Baseline", "Deterministic", 1),
+        ("Random_Search", "Random Search", "Stochastic (5 seeds)", 200),
+        ("Grid_Search", "Grid Search", "Deterministic", 192),
+        ("Nelder_Mead", "Nelder-Mead (fminsearch)", "Deterministic", 200),
+        ("ACO_R", "Continuous ACO (ACO_R)", "Stochastic (5 seeds)", 200),
+    ]
+
+    def get_summary_stats(rows_list):
+        maes = [float(x["held_out_mae"]) for x in rows_list]
+        times = [float(x["runtime_s"]) for x in rows_list]
+        fits = [float(x["best_training_fitness"]) for x in rows_list]
+        mean_mae = sum(maes) / len(maes)
+        min_mae = min(maes)
+        max_mae = max(maes)
+        std_mae = math.sqrt(sum((x - mean_mae) ** 2 for x in maes) / (len(maes) - 1)) if len(maes) > 1 else 0.0
+        mean_time = sum(times) / len(times)
+        mean_fit = sum(fits) / len(fits)
+        return {
+            "mean_mae": mean_mae,
+            "std_mae": std_mae,
+            "min_mae": min_mae,
+            "max_mae": max_mae,
+            "mean_time": mean_time,
+            "mean_fit": mean_fit,
+            "count": len(maes)
+        }
+
+    syn_stats = {m: get_summary_stats(by_src["synthetic"][m]) for m in by_src.get("synthetic", {})}
+    nasa_stats = {m: get_summary_stats(by_src["nasa"][m]) for m in by_src.get("nasa", {})}
+
+    best_syn = min(syn_stats.keys(), key=lambda k: syn_stats[k]["mean_mae"]) if syn_stats else ""
+    best_nasa = min(nasa_stats.keys(), key=lambda k: nasa_stats[k]["mean_mae"]) if nasa_stats else ""
+
+    lines.append("> [!IMPORTANT]")
+    winner_notes = []
+    if best_syn:
+        winner_notes.append(f"Synthetic plant winner: **{best_syn.replace('_', ' ')}** (mean held-out MAE: {syn_stats[best_syn]['mean_mae']:.3f}%)")
+    if best_nasa:
+        winner_notes.append(f"Real NASA replay winner: **{best_nasa.replace('_', ' ')}** (mean held-out MAE: {nasa_stats[best_nasa]['mean_mae']:.3f}%)")
+    lines.append(f"> **Tuner Benchmark Summary:** {'; '.join(winner_notes)}.")
+    lines.append("")
+
+    lines.append("| Optimization Algorithm | Type | Evaluations | Synthetic Held-Out MAE (%) | NASA Held-Out MAE (%) | Mean Runtime (s) |")
+    lines.append("| :--- | :---: | :---: | :---: | :---: | :---: |")
+
+    for mid, mlabel, mtype, def_ev in method_order:
+        s_stat = syn_stats.get(mid, None)
+        n_stat = nasa_stats.get(mid, None)
+
+        ev_str = str(def_ev)
+        if s_stat and s_stat["count"] > 1:
+            syn_str = f"{s_stat['mean_mae']:.3f}% ± {s_stat['std_mae']:.3f}% [{s_stat['min_mae']:.3f}%, {s_stat['max_mae']:.3f}%]"
+        elif s_stat:
+            syn_str = f"{s_stat['mean_mae']:.3f}%"
+        else:
+            syn_str = "NOT VERIFIED"
+
+        if n_stat and n_stat["count"] > 1:
+            nasa_str = f"{n_stat['mean_mae']:.3f}% ± {n_stat['std_mae']:.3f}% [{n_stat['min_mae']:.3f}%, {n_stat['max_mae']:.3f}%]"
+        elif n_stat:
+            nasa_str = f"{n_stat['mean_mae']:.3f}%"
+        else:
+            nasa_str = "NOT VERIFIED"
+
+        time_vals = []
+        if s_stat: time_vals.append(s_stat["mean_time"])
+        if n_stat: time_vals.append(n_stat["mean_time"])
+        mean_t_str = f"{sum(time_vals)/len(time_vals):.1f} s" if time_vals else "N/A"
+
+        if mid == best_syn:
+            syn_str = f"**{syn_str}**"
+        if mid == best_nasa:
+            nasa_str = f"**{nasa_str}**"
+
+        lines.append(f"| **{mlabel}** | {mtype} | {ev_str} | {syn_str} | {nasa_str} | {mean_t_str} |")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def format_wide_table(wide_rows):
+    if not wide_rows:
+        return ""
+    lines = []
+    lines.append("### Table 6: Widened Search Bounds Benchmark (10 Seeds, Widened by 1 Decade on Each Side)")
+    lines.append("")
+    lines.append("> [!NOTE]")
+    lines.append("> **Widened Search Space Specification & Evaluation Setup:**")
+    lines.append("> - Search space widened by 1 decade on each side: $\\log_{10} Q_i \\in [-10, -3]$ (previously $[-9, -4]$) and $\\log_{10} R \\in [-5, 0]$ (previously $[-4, -1]$).")
+    lines.append("> - Evaluated across 10 independent random seeds for ACO_R and Random_Search, and uniform Grid_Search.")
+    lines.append("> - **Per-cell Breakdown:** Evaluated on unseen NASA cells B0005 and B0007 across cycles #1, #60, and #120, reporting fresh (#1) vs aged (#120) performance.")
+    lines.append("> - **Overfitting Diagnostics:** Reports training fitness next to held-out MAE to quantify optimization vs generalization gaps.")
+    lines.append("")
+
+    by_src = {"synthetic": {}, "nasa": {}}
+    for r in wide_rows:
+        src = r.get("source", "")
+        m = r.get("method", "")
+        if src in by_src:
+            if m not in by_src[src]:
+                by_src[src][m] = []
+            by_src[src][m].append(r)
+
+    method_order = [
+        ("ACO_R", "Ant Colony Optimization (ACO_R)"),
+        ("Grid_Search", "Uniform Grid Search"),
+        ("Random_Search", "Random Uniform Search")
+    ]
+
+    lines.append("| Optimization Method | Source | Seeds | Mean Training Cost | Held-Out MAE (%) | Fresh Cells (#1) MAE | Aged Cells (#120) MAE | Bounds Saturation Rate |")
+    lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
+
+    for src in ["synthetic", "nasa"]:
+        src_label = "Synthetic" if src == "synthetic" else "Real NASA"
+        for mid, mlabel in method_order:
+            runs = by_src[src].get(mid, [])
+            if not runs:
+                continue
+            count = len(runs)
+            fits = [float(r["best_training_fitness"]) for r in runs]
+            maes = [float(r["held_out_mae"]) for r in runs]
+            mean_fit = sum(fits) / len(fits)
+            mean_mae = sum(maes) / len(maes)
+
+            if count > 1:
+                std_mae = math.sqrt(sum((x - mean_mae) ** 2 for x in maes) / (count - 1))
+                mae_str = f"{mean_mae:.3f}% ± {std_mae:.3f}% [{min(maes):.3f}%, {max(maes):.3f}%]"
+            else:
+                mae_str = f"{mean_mae:.3f}%"
+
+            fresh_vals = [float(r["mae_fresh"]) for r in runs if r.get("mae_fresh") and r["mae_fresh"] != "NaN"]
+            aged_vals = [float(r["mae_aged"]) for r in runs if r.get("mae_aged") and r["mae_aged"] != "NaN"]
+            fresh_str = f"{sum(fresh_vals)/len(fresh_vals):.2f}%" if fresh_vals else "N/A (model-matched)"
+            aged_str = f"{sum(aged_vals)/len(aged_vals):.2f}%" if aged_vals else "N/A (model-matched)"
+
+            bnd_counts = [float(r["is_at_bound"]) for r in runs if "is_at_bound" in r]
+            if bnd_counts:
+                bnd_pct = (sum(bnd_counts) / (len(bnd_counts) * 4.0)) * 100.0
+                bnd_str = f"{bnd_pct:.1f}% ({int(sum(bnd_counts))}/{len(bnd_counts)*4} params)"
+            else:
+                bnd_str = "0.0%"
+
+            lines.append(f"| **{mlabel}** | {src_label} | {count} | {mean_fit:.2e} | {mae_str} | {fresh_str} | {aged_str} | {bnd_str} |")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def update_readme(readme_path, table_md):
     if not os.path.isfile(readme_path):
         raise FileNotFoundError(f"README not found at: {readme_path}")
@@ -241,6 +417,8 @@ def main():
     parser = argparse.ArgumentParser(description="Generate markdown results tables from regression CSV.")
     parser.add_argument("--csv", default="simulink_matlab/results/bms_regression_results.csv", help="Path to bms_regression_results.csv")
     parser.add_argument("--cross-csv", default="simulink_matlab/results/cross_matrix.csv", help="Path to cross_matrix.csv")
+    parser.add_argument("--tuner-csv", default="simulink_matlab/results/tuner_compare.csv", help="Path to tuner_compare.csv")
+    parser.add_argument("--wide-csv", default="simulink_matlab/results/tuner_compare_wide.csv", help="Path to tuner_compare_wide.csv")
     parser.add_argument("--update", default=None, help="Path to README.md to update between marker comments")
     args = parser.parse_args()
 
@@ -253,6 +431,18 @@ def main():
         if cross_table_md:
             table_md = table_md + "\n\n---\n\n" + cross_table_md
 
+    if os.path.isfile(args.tuner_csv):
+        tuner_rows = load_csv_data(args.tuner_csv)
+        tuner_table_md = format_tuner_table(tuner_rows)
+        if tuner_table_md:
+            table_md = table_md + "\n\n---\n\n" + tuner_table_md
+
+    if os.path.isfile(args.wide_csv):
+        wide_rows = load_csv_data(args.wide_csv)
+        wide_table_md = format_wide_table(wide_rows)
+        if wide_table_md:
+            table_md = table_md + "\n\n---\n\n" + wide_table_md
+
     if args.update:
         update_readme(args.update, table_md)
     else:
@@ -261,4 +451,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
