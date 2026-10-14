@@ -10,7 +10,7 @@
 4. [Online 3-State EKF Controller & Joseph Form](#4-online-3-state-ekf-controller--joseph-form)
 5. [Automotive Model-Based Design (MBD) Simulink System Design](#5-automotive-model-based-design-mbd-simulink-system-design)
 6. [Multi-Platform Code Ecosystem (Python & ANSI C Firmware)](#6-multi-platform-code-ecosystem-python--ansi-c-firmware)
-7. [Experimental Results & NASA Hardware Validation](#7-experimental-results--nasa-hardware-validation)
+7. [Experimental Results & NASA Real Measured Cell Data Validation](#7-experimental-results--nasa-real-measured-cell-data-validation)
 8. [Master Presentation Talking Points & Script](#8-master-presentation-talking-points--script)
 
 ---
@@ -141,7 +141,7 @@ File: **`simulink_matlab/advanced_bms_aco_ekf.slx`** (built programmatically via
 
 ---
 
-# 7. Experimental Results & NASA Hardware Validation
+# 7. Experimental Results & NASA Real Measured Cell Data Validation
 
 ### 7.1 Performance Across 4 Operating Profiles
 Evaluated under $+10\%$ initial guess error ($85\%$ initial guess vs $95\%$ true SOC):

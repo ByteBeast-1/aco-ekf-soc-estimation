@@ -21,11 +21,11 @@ from visualization import compute_metrics
 
 def load_nasa_dataset():
     """
-    Download (if needed) and parse the official NASA Ames B0005 18650 cell dataset.
+    Load synthetic B0005 benchmark CSV (data/SYNTHETIC_B0005.csv).
     """
-    data_file = os.path.join("data", "NASA_B0005.csv")
+    data_file = os.path.join("data", "SYNTHETIC_B0005.csv")
     if not os.path.exists(data_file):
-        print("  [Data] NASA B0005 CSV not found. Downloading...")
+        print("  [Data] SYNTHETIC_B0005.csv not found. Generating/downloading...")
         from download_nasa_dataset import download_nasa_b0005
         download_nasa_b0005()
 
@@ -216,7 +216,7 @@ def main():
     X_train, y_train = collect_training_data(time_train, current_train, voltage_train, temp_train, soc_train, model)
 
     # Step 3: Train Residual Neural Network (PyTorch MLP)
-    print("\n[Step 3/5] Training Physics-Informed Residual MLP Network on hardware residuals...")
+    print("\n[Step 3/5] Training Physics-Informed Residual MLP Network on voltage residuals...")
     corrector = ResidualCorrector(model_path="models/residual_mlp.pth")
     corrector.train_model(X_train, y_train, epochs=40, batch_size=64, lr=0.01)
 
@@ -230,7 +230,7 @@ def main():
     m_aekf = compute_metrics(soc_test, res["soc_aekf"])
     m_hybrid = compute_metrics(soc_test, res["soc_hybrid"])
 
-    print("\n[Step 5/5] NASA B0005 Hardware Benchmark Results Summary:")
+    print("\n[Step 5/5] NASA B0005 Real Measured Cell Data Benchmark Results Summary:")
     print("=" * 90)
     print(f"{'Observer Algorithm':<26} | {'MSE':<10} | {'MAE (%)':<9} | {'Max Error (%)':<14} | {'R^2':<8}")
     print("-" * 90)
@@ -268,7 +268,7 @@ def main():
     plt.axhline(0, color='red', linestyle='--', alpha=0.5)
     plt.xlabel('Time (seconds)', fontsize=11)
     plt.ylabel('Estimation Error (SOC %)', fontsize=11)
-    plt.title('Estimation Error Convergence on Physical Cell Hardware', fontsize=12, fontweight='bold')
+    plt.title('Estimation Error Convergence on Real Measured Cell Data', fontsize=12, fontweight='bold')
     plt.grid(True, linestyle=':', alpha=0.6)
     plt.legend(loc='best')
     plt.tight_layout()

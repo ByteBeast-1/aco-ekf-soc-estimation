@@ -1,0 +1,15 @@
+name: bms-aco-ekf
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - numpy=1.26.4
+  - scipy=1.15.3
+  - matplotlib=3.10.6
+  - pandas=2.3.2
+  - pyyaml=6.0.3
+  - pip
+  - pip:
+      - python-docx==1.2.0
+      - pytest==9.1.1

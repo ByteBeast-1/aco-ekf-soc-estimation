@@ -127,4 +127,4 @@ $$\begin{aligned}
 ### 5.2 Key Result Highlights
 1. **Overall Tracking Accuracy:** Achieves an overall **RMSE $< 1.5\%$** across all driving conditions.
 2. **Initial Error Recovery:** Successfully recovers from an intentional **10% initial SOC error** within **200 seconds**.
-3. **Real-World Hardware Validation:** Validated against the **NASA Ames Cell B0005 hardware dataset**, maintaining sub-1% SOC error even under $+10^\circ\text{C}$ cell self-heating.
+3. **Real Measured Cell Data Validation:** Validated against the **NASA Ames Cell B0005 dataset**, maintaining sub-1% SOC error even under $+10^\circ\text{C}$ cell self-heating.

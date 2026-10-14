@@ -13,7 +13,8 @@ function ok = run_bms_regression(opts)
 %     0. Model quality : no dangling ports, strict diagnostics, bus/unit/dictionary consistency
 %     6. Precision     : estimator in 32-bit float (the firmware's arithmetic) versus 64-bit double
 %     7. SIL           : compiled C firmware versus the MATLAB float32 estimator on identical measurements
-%   Options: struct('simulink', false) skips suites 0 and 1; struct('sil', false) skips suite 7.
+%     8. Unified model : bms_unified (SIM and REPLAY) == legacy models within 1e-9
+%   Options: struct('simulink', false) skips suites 0, 1, and 8; struct('sil', false) skips suite 7.
 %   Results -> results/bms_regression_results.csv and figures/15_*.png
     if nargin < 1,  opts = struct();  end
     if ~isfield(opts, 'simulink'),  opts.simulink = true;  end
@@ -72,11 +73,11 @@ function ok = run_bms_regression(opts)
 
         fprintf('\n== 0. Model quality (structure, interfaces, diagnostics) ==\n');
         n_un = 0;  strict_ok = true;
-        for mname = {'advanced_bms_aco_ekf', 'sota_bms_aco_ekf'}
+        for mname = {'advanced_bms_aco_ekf', 'sota_bms_aco_ekf', 'bms_estimator_ref', 'bms_unified'}
             [nu, so_] = model_quality(mname{1});
             n_un = n_un + nu;  strict_ok = strict_ok && so_;
         end
-        check('Models: no unconnected ports', n_un == 0, sprintf('%d unconnected ports in both models', n_un));
+        check('Models: no unconnected ports', n_un == 0, sprintf('%d unconnected ports across all 4 models', n_un));
         check('Models: strict diagnostics are errors (dangling ports/lines, algebraic loops, bus mismatch)', strict_ok, 'all enabled');
         dq = dictionary_quality();
         check('Data dictionary: every bus element has a description and physical ones a unit', dq.units_ok, sprintf('%d elements checked', dq.n_elements));
@@ -246,6 +247,99 @@ function ok = run_bms_regression(opts)
         check('C firmware vs MATLAB float32: diagnostic codes identical', all([sil.flags_equal]), sprintf('%d flagged samples compared', sum([sil.n_flagged])));
     end
 
+    %% ---- 8. Unified model equivalence ----------------------------------------------
+    if opts.simulink
+        fprintf('\n== 8. Unified model equivalence: bms_unified vs legacy models ==\n');
+        % Synthetic equivalence: bms_unified (BMS_Source = 1) vs advanced_bms_aco_ekf
+        bms_setup('synthetic', true);
+        so_adv = sim('advanced_bms_aco_ekf');  d_adv = so_adv.bms_log;
+        bms_setup('unified', true);  BMS_Source = 1;
+        so_uni_s = sim('bms_unified');  d_uni_s = so_uni_s.bms_log;
+        e_syn_ekf = max(abs(d_adv(:, 2) - d_uni_s(:, 2)));
+        e_syn_plt = max(abs(d_adv(:, 1) - d_uni_s(:, 1)));
+        check('Unified (SIM): EKF SOC == advanced_bms_aco_ekf', e_syn_ekf < 1e-9, sprintf('max diff %.2e %%', e_syn_ekf));
+        check('Unified (SIM): plant SOC == advanced_bms_aco_ekf', e_syn_plt < 1e-9, sprintf('max diff %.2e %%', e_syn_plt));
+        bdclose('advanced_bms_aco_ekf');
+
+        % Real-data equivalence: bms_unified (BMS_Source = 2) vs sota_bms_aco_ekf
+        bms_setup('nasa', true);
+        so_sota = sim('sota_bms_aco_ekf');  d_sota = so_sota.bms_log;
+        bms_setup('nasa', true);  BMS_Source = 2;
+        so_uni_n = sim('bms_unified');  d_uni_n = so_uni_n.bms_log;
+        e_nasa_ekf = max(abs(d_sota(:, 2) - d_uni_n(:, 2)));
+        e_nasa_ada = max(abs(d_sota(:, 3) - d_uni_n(:, 3)));
+        e_nasa_cap = max(abs(d_sota(:, 12) - d_uni_n(:, 12)));
+        check('Unified (REPLAY): baseline EKF == sota_bms_aco_ekf', e_nasa_ekf < 1e-9, sprintf('max diff %.2e %%', e_nasa_ekf));
+        check('Unified (REPLAY): adaptive EKF == sota_bms_aco_ekf', e_nasa_ada < 1e-9, sprintf('max diff %.2e %%', e_nasa_ada));
+        check('Unified (REPLAY): capacity-state SOC == sota_bms_aco_ekf', e_nasa_cap < 1e-9, sprintf('max diff %.2e %%', e_nasa_cap));
+
+        % Non-vacuous switch check: Source Tag equals 0 in SIM and 1 in REPLAY, and reference SOC series differ
+        tag_sim_ok = all(d_uni_s(:, 14) == 0);
+        tag_rep_ok = all(d_uni_n(:, 14) == 1);
+        n_min = min(size(d_uni_s, 1), size(d_uni_n, 1));
+        soc_diff = max(abs(d_uni_s(1:n_min, 1) - d_uni_n(1:n_min, 1)));
+        switch_nonvacuous = tag_sim_ok && tag_rep_ok && (soc_diff > 1.0);
+        check('Unified: source switch is non-vacuous (Source Tag 0 vs 1, distinct reference SOC)', ...
+            switch_nonvacuous, sprintf('tags [%d, %d], ref diff %.1f %%', d_uni_s(1, 14), d_uni_n(1, 14), soc_diff));
+        bdclose('sota_bms_aco_ekf');
+        bdclose('bms_unified');
+
+        rows(end + 1, :) = {'unified_eq', 'synthetic_ekf', e_syn_ekf, e_syn_plt, NaN, NaN}; %#ok<AGROW>
+        rows(end + 1, :) = {'unified_eq', 'nasa_replay', e_nasa_ekf, e_nasa_ada, e_nasa_cap, NaN}; %#ok<AGROW>
+        rows(end + 1, :) = {'unified_eq', 'switch_nonvacuous', double(tag_sim_ok), double(tag_rep_ok), soc_diff, NaN}; %#ok<AGROW>
+
+        %% ---- 9. Cross-feeding test matrix and single entry point ------------------------------------
+        fprintf('\n== 9. Cross-feeding test matrix & single entry point ==\n');
+        cross_csv = fullfile(outdir, 'cross_matrix.csv');
+        if ~isfile(cross_csv)
+            bms_cross_matrix('quick');
+        end
+        cross_exists = isfile(cross_csv);
+        check('Cross-matrix: results/cross_matrix.csv exists and is populated', cross_exists, sprintf('file present: %d', cross_exists));
+
+        n_rows = 0;
+        if cross_exists
+            t_cross = readtable(cross_csv);
+            n_rows = height(t_cross);
+            has_estimators = any(strcmp(t_cross.estimator, 'Baseline_EKF')) && ...
+                             any(strcmp(t_cross.estimator, 'Adaptive_EKF')) && ...
+                             any(strcmp(t_cross.estimator, 'Capacity_SOH_EKF'));
+            check('Cross-matrix: all 3 estimators evaluated across scenarios', has_estimators && n_rows >= 12, ...
+                sprintf('%d rows, 3 estimators', n_rows));
+
+            % Check adaptive EKF steady-state error bounded on synthetic
+            syn_mask = strcmp(t_cross.source, 'synthetic') & strcmp(t_cross.estimator, 'Adaptive_EKF');
+            mean_syn_mae = mean(t_cross.mae_pct(syn_mask));
+            check('Cross-matrix: adaptive EKF mean MAE bounded on synthetic plant', mean_syn_mae < 1.0, ...
+                sprintf('mean MAE %.3f %% < 1.0', mean_syn_mae));
+
+            % Check per-spike detection and first-flag delay on NASA replay
+            rep_f2_mask = strcmp(t_cross.source, 'nasa') & (t_cross.fault_mode == 2);
+            spike_rates = t_cross.spike_flag_rate(rep_f2_mask);
+            delays = t_cross.first_flag_delay_s(rep_f2_mask);
+            spike_det_ok = ~isempty(spike_rates) && all(spike_rates == 1.0) && all(delays <= 25);
+            check('Cross-matrix: NASA replay fault detection (100% spikes flagged, delay <= 25 s)', spike_det_ok, ...
+                sprintf('spike rate %.0f %%, delay %.0f s', spike_rates(1) * 100, delays(1)));
+
+            % Check capacity EKF performance on NASA data
+            cap_mask = strcmp(t_cross.estimator, 'Capacity_SOH_EKF') & strcmp(t_cross.source, 'nasa');
+            cap_mae_ok = mean(t_cross.mae_pct(cap_mask)) < 4.0;
+            check('Cross-matrix: capacity SOH EKF bounded error on NASA data', cap_mae_ok, ...
+                sprintf('mean MAE %.3f %% < 4.0', mean(t_cross.mae_pct(cap_mask))));
+        else
+            check('Cross-matrix: all 3 estimators evaluated across scenarios', false, 'CSV missing');
+            check('Cross-matrix: adaptive EKF mean MAE bounded on synthetic plant', false, 'CSV missing');
+            check('Cross-matrix: NASA replay fault detection latency is bounded', false, 'CSV missing');
+            check('Cross-matrix: capacity SOH EKF bounded error on NASA data', false, 'CSV missing');
+        end
+
+        % Check single entry point script exists and is callable
+        single_entry_ok = (exist('run_everything', 'file') == 2);
+        check('Single entry point: run_everything.m exists and is callable', single_entry_ok, 'run_everything.m verified');
+
+        rows(end + 1, :) = {'cross_matrix', 'status', double(cross_exists), n_rows, NaN, NaN}; %#ok<AGROW>
+    end
+
     %% ---- report -------------------------------------------------------------------------------------
     T = cell2table(rows, 'VariableNames', {'suite', 'case', 'v1', 'v2', 'v3', 'v4'});
     writetable(T, fullfile(outdir, 'bms_regression_results.csv'));
@@ -280,7 +374,7 @@ function q = dictionary_quality()
     sec = getSection(dd, 'Design Data');
     physical = {'SOC_pct', 'Voltage_V', 'Current_A', 'Temperature_K', 'Innovation_V', 'R0_Ohm', 'SOC_Coulomb_pct'};
     q.units_ok = true;  q.n_elements = 0;
-    for b = {'BMS_PlantTruth', 'BMS_Measurement', 'BMS_Estimate'}
+    for b = {'BMS_PlantTruth', 'BMS_Measurement', 'BMS_Estimate', 'BMS_Reference'}
         bus = getValue(getEntry(sec, b{1}));
         for el = bus.Elements(:)'
             q.n_elements = q.n_elements + 1;

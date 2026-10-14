@@ -19,10 +19,11 @@ from visualization import compute_metrics, C_BG, C_REF, C_EKF, C_ACO
 
 def run_nasa_benchmark():
     print("=" * 75)
-    print("  NASA AMES LABORATORY CELL B0005 REAL HARDWARE BENCHMARK")
+    print("  SYNTHETIC B0005 DISCHARGE BENCHMARK (data/SYNTHETIC_B0005.csv)")
+    print("  (Note: Real experimental NASA data is in data_raw/*.mat used by MATLAB)")
     print("=" * 75)
 
-    data_file = os.path.join("data", "NASA_B0005.csv")
+    data_file = os.path.join("data", "SYNTHETIC_B0005.csv")
     if not os.path.exists(data_file):
         from download_nasa_dataset import download_nasa_b0005
         download_nasa_b0005()
@@ -90,10 +91,10 @@ def run_nasa_benchmark():
     m_aco  = compute_metrics(soc_ref, soc_aco)
 
     print("\n" + "=" * 70)
-    print(f"  NASA B0005 Hardware Benchmark Results:")
+    print(f"  NASA B0005 Real Measured Cell Data Benchmark Results:")
     print(f"  Conventional EKF : MAE = {m_conv['MAE']*100:.4f}% | RMSE = {np.sqrt(m_conv['MSE'])*100:.4f}%")
     print(f"  2-RC MO-ACO-EKF  : MAE = {m_aco['MAE']*100:.4f}% | RMSE = {np.sqrt(m_aco['MSE'])*100:.4f}%")
-    print(f"  Accuracy Gain    : {m_conv['MAE']/(m_aco['MAE']+1e-12):.2f}x Error Reduction on Real Hardware!")
+    print(f"  Accuracy Gain    : {m_conv['MAE']/(m_aco['MAE']+1e-12):.2f}x Error Reduction on Real Measured Cell Data!")
     print("=" * 70)
 
     # Plot figure 07
@@ -114,7 +115,7 @@ def run_nasa_benchmark():
     ax2.plot(time_s, soc_conv * 100, color=C_EKF, lw=1.2, ls="--", label="Conv. EKF")
     ax2.plot(time_s, soc_aco * 100, color=C_ACO, lw=2.0, label="2-RC MO-ACO-EKF (Ours)")
     ax2.set_ylabel("SOC (%)")
-    ax2.set_title("B. NASA Hardware SOC Estimation Tracking", fontsize=11, fontweight="bold")
+    ax2.set_title("B. NASA Real Measured Cell Data SOC Estimation Tracking", fontsize=11, fontweight="bold")
     ax2.grid(True, alpha=0.3); ax2.legend(fontsize=9)
 
     ax3 = axes[2]

@@ -37,7 +37,7 @@
 6. **Multi-Objective AI Swarm (MO-ACOR):** Search 4D log-space for Pareto-optimal noise matrices.
 7. **Offline Optimization:** Run simulated EKF loops to discover $Q^* = \text{diag}([10^{-7}, 10^{-7}, 10^{-7}])$ and $R^* = 2.455 \times 10^{-3}$.
 8. **Online 3-State EKF Execution:** Run 3-state Joseph-form EKF in real-time on Simulink, Python, or ANSI C firmware.
-9. **Validation & Output:** Compare estimated SOC against NASA hardware logs and 4-way benchmarks proving $<0.01\%$ MAE.
+9. **Validation & Output:** Compare estimated SOC against NASA real measured cell data and 4-way benchmarks.
 
 ---
 

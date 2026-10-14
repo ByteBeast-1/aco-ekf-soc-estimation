@@ -1,5 +1,5 @@
 function [st, out] = bms_est_step(st, I, V, T, P, mode)
-%BMS_EST_STEP 3-state Joseph-form EKF with built-in diagnostics.
+%BMS_EST_STEP 4-state Joseph-form EKF (SOC, V1, V2, optional online capacity) with diagnostics.
 %   mode is a bit mask (0 = conventional EKF with fixed, ACO-tuned Q and R):
 %       1 = scalar-RLS tracking of the R0 scale   2 = Sage-Husa adaptation of R
 %       4 = Sage-Husa adaptation of Q             8 = online capacity (SOH) state
