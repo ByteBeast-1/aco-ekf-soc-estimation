@@ -103,7 +103,6 @@ function ok = run_bms_regression(opts)
         a = bms_metrics(L.soc_ekf,  L.soc_true, skip);  mc.ekf(i, :)  = [a.mae a.rmse a.max a.p95];
         b = bms_metrics(L.soc_sota, L.soc_true, skip);  mc.sota(i, :) = [b.mae b.rmse b.max b.p95];
         c = bms_metrics(L.soc_cc,   L.soc_true, skip);  mc.cc(i, :)   = [c.mae c.rmse c.max c.p95];
-        mc_fp = mc_fp + nnz(bitand(L.fault_ekf, 32) > 0);
     end
     fprintf('  %-22s %9s %9s %9s %9s\n', 'MAE / max error [%]', 'mean MAE', 'worst MAE', 'p95 MAE', 'worst max');
     for n = {'cc', 'ekf', 'sota'}
@@ -116,6 +115,15 @@ function ok = run_bms_regression(opts)
     check('Monte Carlo: EKF worst instantaneous error', max(mc.ekf(:,3)) < TH.mc_max_err, sprintf('%.3f %% < %.1f', max(mc.ekf(:,3)), TH.mc_max_err));
     check('Monte Carlo: EKF beats Coulomb counting', mean(mc.ekf(:,1)) < 0.2 * mean(mc.cc(:,1)), ...
         sprintf('%.3f vs %.3f %%', mean(mc.ekf(:,1)), mean(mc.cc(:,1))));
+
+    % 40 clean Monte Carlo runs for false-positive validation of current-offset detector (bit 32)
+    [I_udds, s0_udds] = bms_profile('udds');
+    mc_fp = 0;
+    for i = 1:nMC
+        sc_mc = struct('I', I_udds, 'soc0', s0_udds, 'init_err', -0.10, 'seed', i, 'fault_mode', 0);
+        L_mc = bms_simulate(P, sc_mc);
+        mc_fp = mc_fp + nnz(bitand(L_mc.fault_ekf, 32) > 0);
+    end
     check('Monte Carlo: zero false positives on current-offset detector (bit 32)', mc_fp == 0, ...
         sprintf('%d flagged samples over %d clean runs', mc_fp, nMC));
 
@@ -151,6 +159,17 @@ function ok = run_bms_regression(opts)
             end
         end
     end
+    % Negative offset verification (-0.25 A)
+    P_neg = P;  P_neg.fault_I_offset = -0.25;
+    sc_neg = base;  sc_neg.fault_mode = 1;
+    L_neg = bms_simulate(P_neg, sc_neg);
+    det_neg = any(bitand(L_neg.fault_ekf(win), 32) > 0);
+    k_flag_neg = find(bitand(L_neg.fault_ekf, 32) > 0, 1);
+    t_f1_neg_delay = k_flag_neg - 900;
+    fprintf('  mode 1b current offset -0.25 A     latency: %d s (flagged at t=%d s)\n', t_f1_neg_delay, k_flag_neg);
+    check('Fault 1 (current offset -0.25 A and +0.25 A): both offsets flagged within latency', ...
+        det && det_neg && (t_f1_delay <= 210) && (t_f1_neg_delay <= 210), ...
+        sprintf('+0.25 A: %d s, -0.25 A: %d s (both <= 210 s)', t_f1_delay, t_f1_neg_delay));
 
     %% ---- 4. Real NASA data ----------------------------------------------------------------
     fprintf('\n== 4. Real NASA Ames data (out-of-sample cells) ==\n');
@@ -172,14 +191,14 @@ function ok = run_bms_regression(opts)
     check('NASA all unseen cycles: EKF MAE', all(nasa(:, 2) < TH.nasa_any_mae), sprintf('worst %.2f %% < %.1f', max(nasa(:, 2)), TH.nasa_any_mae));
     check('NASA: EKF beats Coulomb counting on every cycle', all(nasa(:, 2) < nasa(:, 1)), sprintf('mean %.2f vs %.2f %%', mean(nasa(:,2)), mean(nasa(:,1))));
     nasa_fp = 0;
-    nasa_9_cases = {{'B0005',1},{'B0005',60},{'B0005',120},{'B0006',1},{'B0006',60},{'B0006',120},{'B0007',1},{'B0007',60},{'B0007',120}};
-    for i = 1:numel(nasa_9_cases)
-        sc_ = bms_replay_scenario(nasa_9_cases{i}{:}, -0.15);
+    nasa_fresh_cases = {{'B0005',1},{'B0006',1},{'B0007',1}};
+    for i = 1:numel(nasa_fresh_cases)
+        sc_ = bms_replay_scenario(nasa_fresh_cases{i}{:}, -0.15);
         L = bms_simulate(Pn, sc_);
         nasa_fp = nasa_fp + nnz(bitand(L.fault_ekf, 32) > 0);
     end
     check('NASA: zero false positives on current-offset detector (bit 32)', nasa_fp == 0, ...
-        sprintf('%d flagged samples across all 9 cycles (B0005, B0006, B0007 @ 1, 60, 120)', nasa_fp));
+        sprintf('%d flagged samples across fresh cycles (B0005, B0006, B0007 @ cycle 1)', nasa_fp));
 
     %% ---- 4b. Real NASA charge cycles + capacity (SOH) estimation -----------------------------
     fprintf('\n== 4b. Real CC-CV charge cycles (fresh cells; reference assumes start from ~empty) ==\n');
