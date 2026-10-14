@@ -272,11 +272,21 @@ function ok = run_bms_regression(opts)
         check('Unified (REPLAY): baseline EKF == sota_bms_aco_ekf', e_nasa_ekf < 1e-9, sprintf('max diff %.2e %%', e_nasa_ekf));
         check('Unified (REPLAY): adaptive EKF == sota_bms_aco_ekf', e_nasa_ada < 1e-9, sprintf('max diff %.2e %%', e_nasa_ada));
         check('Unified (REPLAY): capacity-state SOC == sota_bms_aco_ekf', e_nasa_cap < 1e-9, sprintf('max diff %.2e %%', e_nasa_cap));
+
+        % Non-vacuous switch check: Source Tag equals 0 in SIM and 1 in REPLAY, and reference SOC series differ
+        tag_sim_ok = all(d_uni_s(:, 14) == 0);
+        tag_rep_ok = all(d_uni_n(:, 14) == 1);
+        n_min = min(size(d_uni_s, 1), size(d_uni_n, 1));
+        soc_diff = max(abs(d_uni_s(1:n_min, 1) - d_uni_n(1:n_min, 1)));
+        switch_nonvacuous = tag_sim_ok && tag_rep_ok && (soc_diff > 1.0);
+        check('Unified: source switch is non-vacuous (Source Tag 0 vs 1, distinct reference SOC)', ...
+            switch_nonvacuous, sprintf('tags [%d, %d], ref diff %.1f %%', d_uni_s(1, 14), d_uni_n(1, 14), soc_diff));
         bdclose('sota_bms_aco_ekf');
         bdclose('bms_unified');
 
         rows(end + 1, :) = {'unified_eq', 'synthetic_ekf', e_syn_ekf, e_syn_plt, NaN, NaN}; %#ok<AGROW>
         rows(end + 1, :) = {'unified_eq', 'nasa_replay', e_nasa_ekf, e_nasa_ada, e_nasa_cap, NaN}; %#ok<AGROW>
+        rows(end + 1, :) = {'unified_eq', 'switch_nonvacuous', double(tag_sim_ok), double(tag_rep_ok), soc_diff, NaN}; %#ok<AGROW>
     end
 
     %% ---- report -------------------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 # Phase 2 Verification & Reproduction Guide (`PHASE2_RUN_ME.md`)
 
-This document details the architecture, programmatic generation, and verification procedures for **Phase 2 (Items A & B)** of the BMS upgrade project as outlined in [`docs/AGENT_BRIEF.md`](file:///c:/Users/sande/OneDrive/Desktop/aco-ekf-soc-estimation/docs/AGENT_BRIEF.md).
+This document details the architecture, programmatic generation, and verification procedures for **Phase 2 (Items A & B)** of the BMS upgrade project as outlined in [`docs/AGENT_BRIEF.md`](../docs/AGENT_BRIEF.md).
 
 ---
 
@@ -16,8 +16,13 @@ All changes have been implemented on branch **`phase2-unified`** without editing
 | **`bms_unified.slx`** | Created programmatically | **VERIFIED** | Variant Subsystem (`Choice_SIM` vs `Choice_REPLAY`), $0.00\text{e+}00\,\%$ numerical difference vs legacy models |
 | **`bms_data.sldd`** | Updated | **VERIFIED** | Added `BMS_Reference` bus (`SOC_pct`, `Source_Tag`) with physical units & descriptions |
 | **`bms_scenario.m`** | Created | **VERIFIED** | Returns unified scenario struct (`name`, `source`, `I`, `V_ref`, `T`, `soc_ref`, `soc0`, `init_err`, `seed`, `fault_mode`, `params_variant`), plus `'list'` |
-| **`run_all.m`** | Created | **VERIFIED** | Executes scenario sweeps via `Simulink.SimulationInput`, outputs per-scenario time-series CSVs, 4-panel PNG figures, and `all_scenarios_summary.csv` |
-| **`run_bms_regression.m`** | Updated | **VERIFIED** | **38 / 38 checks pass** (Suites 0 through 8). Suite 8 confirms unified model reproduces legacy models within $1\text{e-}9$ |
+| **`run_all.m`** | Created | **VERIFIED** | Executes scenario sweeps via `Simulink.SimulationInput`, outputs per-scenario time-series CSVs (15 columns), 4-panel PNG figures, and `all_scenarios_summary.csv` |
+| **`run_bms_regression.m`** | Updated | **VERIFIED** | **39 / 39 checks pass** (Suites 0 through 8). Suite 8 confirms unified model reproduces legacy models within $1\text{e-}9$ and source switch is non-vacuous |
+
+> [!NOTE]
+> **Model Reference Architecture & Equivalence by Construction:**
+> The legacy models (`advanced_bms_aco_ekf.slx` and `sota_bms_aco_ekf.slx`) were programmatically refactored to instantiate `bms_estimator_ref.slx`, sharing the exact same referenced block as `bms_unified.slx`. Consequently, numerical equivalence between `bms_unified.slx` and the legacy models in Suite 8 ($0.00\text{e+}00\,\%$) is partly by construction.
+> **Suite 1** (which runs back-to-back Simulink simulations against the independent pure-MATLAB reference implementation [`lib/bms_est_step.m`](lib/bms_est_step.m)) provides the independent, non-circular mathematical verification.
 
 ---
 
@@ -62,21 +67,23 @@ graph TD
 - **`BMS_Reference` Bus:**
   - `SOC_pct`: Reference cell SOC ($0 \dots 100\,\%$) with unit `%`.
   - `Source_Tag`: $0.0$ for SIM, $1.0$ for REPLAY.
-- **`bms_log` Output Structure (14 columns):**
-  1. `Reference SOC (%)`
-  2. `EKF Baseline SOC (%)`
-  3. `Adaptive EKF SOC (%)`
-  4. `Coulomb Counting SOC (%)`
-  5. `Measured Voltage (V)`
-  6. `Adaptive Predicted Voltage (V)`
-  7. `Innovation (V)`
-  8. `NIS (Normalized Innovation Squared)`
-  9. `Diagnostic Fault Code Bitmask`
-  10. `Identified Resistance R0 (Ohm)`
-  11. `Adapted Measurement Variance R (V^2)`
-  12. `Capacity EKF SOC (%)`
-  13. `Estimated Capacity Ratio (SOH)`
-  14. `Source Tag (0: SIM, 1: REPLAY)`
+- **`bms_log` Output Structure (14 machine-readable signals):**
+  1. `Reference SOC (%)` (`BS_Reference/SOC_pct`)
+  2. `EKF Baseline SOC (%)` (`BS_Baseline/SOC_pct`)
+  3. `Adaptive EKF SOC (%)` (`BS_Adaptive/SOC_pct`)
+  4. `Coulomb Counting SOC (%)` (`BS_Baseline/SOC_Coulomb_pct`)
+  5. `Measured Voltage (V)` (`BS_Measured/Voltage_V`)
+  6. `Adaptive Predicted Voltage (V)` (`BS_Adaptive/Voltage_V`)
+  7. `Innovation (V)` (`BS_Adaptive/Innovation_V`)
+  8. `NIS (Normalized Innovation Squared)` (`BS_Adaptive/NIS`)
+  9. `Diagnostic Fault Code Bitmask` (`BS_Adaptive/FaultCode`)
+  10. `Identified Resistance R0 (Ohm)` (`BS_Adaptive/R0_Ohm`)
+  11. `Adapted Measurement Variance R (V^2)` (`BS_Adaptive/R_cov_V2`)
+  12. `Capacity EKF SOC (%)` (`BS_Capacity/SOC_pct`)
+  13. `Estimated Capacity Ratio (SOH)` (`BS_Capacity/CapacityRatio`)
+  14. `Source Tag` (`BS_Reference/Source_Tag`: 0 = SIM, 1 = REPLAY)
+
+*(Note on column counts: `bms_log` contains 14 signal columns; when exported by `run_all.m` to `results/scenario_<name>.csv`, a `Time_s` column is prepended, yielding 15 columns total in the CSV file).*
 
 ---
 
@@ -87,8 +94,7 @@ Open MATLAB, navigate to the repository root directory, and execute the followin
 ### Step 1: Add Paths and Rebuild All Models from Code
 All models are programmatically compiled from scratch; no binary `.slx` files are edited manually.
 ```matlab
-% Set MATLAB path to project root
-cd('c:\Users\sande\OneDrive\Desktop\aco-ekf-soc-estimation');
+% Set working directory to repository root
 addpath(fullfile(pwd, 'simulink_matlab'));
 addpath(fullfile(pwd, 'simulink_matlab', 'lib'));
 
@@ -138,9 +144,10 @@ ok = run_bms_regression;
   [PASS] Unified (REPLAY): baseline EKF == sota_bms_aco_ekf  (max diff 0.00e+00 %)
   [PASS] Unified (REPLAY): adaptive EKF == sota_bms_aco_ekf  (max diff 0.00e+00 %)
   [PASS] Unified (REPLAY): capacity-state SOC == sota_bms_aco_ekf  (max diff 0.00e+00 %)
+  [PASS] Unified: source switch is non-vacuous (Source Tag 0 vs 1, distinct reference SOC)  (tags [0, 1], ref diff 15.8 %)
 
 ====================================================
-  38 / 38 checks passed  ->  ALL PASS
+  39 / 39 checks passed  ->  ALL PASS
 ====================================================
 ```
 
@@ -156,39 +163,56 @@ summary_quick = run_all('quick');
 summary_all = run_all;
 ```
 This automatically produces:
-1. `simulink_matlab/results/all_scenarios_summary.csv`
-2. `simulink_matlab/results/scenario_<name>.csv` (per-scenario 15-column time-series)
-3. `simulink_matlab/results/fig_scenario_<name>.png` (per-scenario 4-panel comparison plots)
+1. `results/all_scenarios_summary.csv`
+2. `results/scenario_<name>.csv` (per-scenario 15-column time-series: `Time_s` + 14 signals)
+3. `results/fig_scenario_<name>.png` (per-scenario 4-panel comparison plots)
 
 ---
 
-## 4. Verification Table (Measured Results)
+## 4. Verification Table (Measured Results Generated from Real Output)
 
-| Verification Suite | Number of Checks | Result | Max Error / Equivalence |
+| Verification Suite | Checks | Result | Measured Thresholds / Equivalence Summary |
 | :--- | :---: | :---: | :--- |
-| **Suite 0: Model Quality** | 4 | **PASS** | 0 unconnected ports across all 4 models; strict diagnostics enabled; 18 bus elements with valid units/descriptions |
-| **Suite 1: Back-to-Back** | 6 | **PASS** | $\text{max diff} = 0.00\text{e+}00\,\%$ vs `lib/bms_est_step.m` |
-| **Suite 2: Monte Carlo (40 runs)** | 4 | **PASS** | EKF mean MAE: $0.481\,\%$ ($< 1.0\,\%$ threshold), beats Coulomb counting ($10.71\,\%$) |
-| **Suite 3: Fault Injection** | 7 | **PASS** | Sensor faults correctly detected by NIS/residual diagnostics; error bounded |
-| **Suite 4: Real NASA Data Replay** | 6 | **PASS** | Fresh cells: $0.66\,\% / 0.93\,\%$ MAE; SOH capacity error: $0.069 < 0.10$ |
-| **Suite 6: Float32 Precision** | 3 | **PASS** | $\text{worst } \Delta\text{SOC} = 0.0593\,\% < 0.10\,\%$ |
-| **Suite 7: SIL Equivalence** | 4 | **PASS** | Compiled C firmware vs MATLAB float32: $\text{worst } \Delta\text{SOC} = 0.00058\,\%$ |
-| **Suite 8: Unified Model Equivalence** | 4 | **PASS** | $\text{max diff} = 0.00\text{e+}00\,\%$ across all estimators on both SIM and REPLAY |
-| **Total Regression Checks** | **38** | **ALL PASS** | **100% Pass Rate** |
+| **Suite 0: Model Quality** | 4 | **PASS** | 0 unconnected ports across all 4 models; strict diagnostics enabled; 18 bus elements with valid units & descriptions; tuned Q/R equal dictionary ($0.0\text{e+}00$) |
+| **Suite 1: Back-to-Back vs Library** | 6 | **PASS** | $\text{max diff} = 0.00\text{e+}00\,\%$ vs [`lib/bms_est_step.m`](lib/bms_est_step.m) (independent verification of EKF, plant, adaptive, and capacity states) |
+| **Suite 2: Monte Carlo (40 runs)** | 4 | **PASS** | EKF mean MAE: $0.481\,\%$ ($< 1.0\,\%$ threshold), worst MAE: $1.153\,\%$ ($< 2.0\,\%$), max instantaneous: $1.852\,\%$ ($< 6.0\,\%$), beats Coulomb counting ($10.71\,\%$) |
+| **Suite 3: Fault Injection** | 6 | **PASS** | Fault-free clean ($0$ flags); Fault 1 (current offset): bounded max $0.75\,\%$; Fault 2 (voltage glitch): bounded max $0.40\,\%$, detected; Fault 3 (open thermistor): bounded max $0.40\,\%$, detected |
+| **Suite 4: Real NASA Data Replay** | 6 | **PASS** | Fresh unseen cells (B0005/B0007): $0.66\,\% / 0.93\,\%$ MAE ($< 2.0\,\%$); all cycles: worst $4.89\,\%$ ($< 6.5\,\%$); beats CC; charge cycles: $3.55\,\% / 3.73\,\%$ MAE; SOH capacity ratio mean error: $0.069 < 0.10$ |
+| **Suite 5: Adaptation Feature Ablation** | 0 | **INFO** | Comparative ablation analysis across 8 mode configurations logged to console and `results/bms_regression_results.csv` |
+| **Suite 6: Float32 Precision** | 3 | **PASS** | Worst $\Delta\text{SOC} = 0.0593\,\% < 0.10\,\%$; worst $\Delta\text{V} = 0.265\text{ mV} < 1.0\text{ mV}$; diagnostic flags identical across all 15 scenarios |
+| **Suite 7: SIL Equivalence** | 4 | **PASS** | Compiled C firmware vs MATLAB float32: worst $\Delta\text{SOC} = 0.00058\,\% < 0.002\,\%$; worst $\Delta\text{V} = 0.293\text{ mV} < 1.0\text{ mV}$; relative trace difference $1.2\text{e-}04 < 1\text{e-}03$; diagnostic flags identical |
+| **Suite 8: Unified Model Equivalence** | 6 | **PASS** | $\text{max diff} = 0.00\text{e+}00\,\%$ across all estimators on both SIM and REPLAY; non-vacuous switch verified (tags $[0, 1]$, ref series diff $> 1.0\,\%$) |
+| **Total Regression Checks** | **39** | **ALL PASS** | **100% Pass Rate** |
 
 ---
 
-## 5. Artifacts and Output Files
+## 5. Technical Note: SIL Determinism and "B0005 charge #1"
+
+A minor variation in the SIL error metric for **`B0005 charge #1`** was observed between historical commits ($0.000557\,\% / 0.286\text{ mV}$) and Windows runs ($0.000580\,\% / 0.293\text{ mV}$). The root cause was investigated:
+
+1. **Determinism within Environment:**
+   Running `bms_sil_run` repeatedly within the same environment produces **100% bit-for-bit identical results** (`dsoc = 0.00057987 %, dv = 0.29325584 mV`).
+2. **Absence of Stochasticity:**
+   Replay scenarios use recorded NASA cell measurements directly. No noise injection or random seeds are invoked during replay execution.
+3. **Cross-Platform Math Library Evaluation:**
+   The variation is caused by floating-point transcendentals (`expf` in the Arrhenius temperature adjustment) across C standard libraries:
+   - Historical commit `e224867` was compiled with Linux GCC linking against GNU C Library (`glibc` `libm`).
+   - The current environment compiles using MSYS2 MinGW GCC linking against Windows Universal C Runtime (`UCRT` `libm`).
+   Minor 1-ULP (unit in the last place) rounding differences in `expf` compound over 10,517 discrete time steps (the longest scenario in the suite, spanning ~3 hours), resulting in a negligible $0.000023\,\%$ ($0.23\text{ ppm}$) maximum instantaneous difference. Both results remain well within the $0.002\,\%$ SIL acceptance threshold.
+
+---
+
+## 6. Artifacts and Output Files
 
 - **Models:**
-  - `simulink_matlab/bms_estimator_ref.slx`
-  - `simulink_matlab/advanced_bms_aco_ekf.slx`
-  - `simulink_matlab/sota_bms_aco_ekf.slx`
-  - `simulink_matlab/bms_unified.slx`
+  - `bms_estimator_ref.slx`
+  - `advanced_bms_aco_ekf.slx`
+  - `sota_bms_aco_ekf.slx`
+  - `bms_unified.slx`
 - **Data Dictionary:**
-  - `simulink_matlab/bms_data.sldd`
+  - `bms_data.sldd`
 - **Results & Figures:**
-  - `simulink_matlab/results/all_scenarios_summary.csv`
-  - `simulink_matlab/results/bms_regression_results.csv`
-  - `simulink_matlab/results/scenario_*.csv`
-  - `simulink_matlab/results/fig_scenario_*.png`
+  - `results/all_scenarios_summary.csv`
+  - `results/bms_regression_results.csv`
+  - `results/scenario_*.csv`
+  - `results/fig_scenario_*.png`
