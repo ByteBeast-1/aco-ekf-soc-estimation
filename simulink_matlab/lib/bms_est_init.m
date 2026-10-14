@@ -18,6 +18,8 @@ function st = bms_est_init(P, soc_guess, Qd, R, mode)
     st.rls_P   = 10.0;
     st.rej     = 0.0;
     st.k       = 0.0;
-    st.T_last  = 298.15;
-    st.nis_avg = 1.0;
+    st.T_last    = 298.15;
+    st.nis_avg   = 1.0;
+    st.innov_avg = 0.0;
+    st.ibias_cnt = 0.0;
 end

@@ -92,10 +92,12 @@ void BMS_EKF_Configure(BMS_EKF_t *ekf, const BMS_BatteryParams_t *params, const 
     ekf->P[1][1] = config->p0_V1;
     ekf->P[2][2] = config->p0_V2;
 
-    ekf->T_last  = 298.15f;
-    ekf->nis_avg = 1.0f;
-    ekf->k       = 0u;
-    ekf->rej     = 0u;
+    ekf->T_last    = 298.15f;
+    ekf->nis_avg   = 1.0f;
+    ekf->innov_avg = 0.0f;
+    ekf->k         = 0u;
+    ekf->rej       = 0u;
+    ekf->ibias_cnt = 0u;
     ekf->is_initialized = 1u;
 }
 
@@ -120,6 +122,8 @@ void BMS_EKF_Init(BMS_EKF_t *ekf, float init_soc, float temp_k)
     d.v_min = 2.0f;  d.v_max = 4.8f;  d.t_min = 250.0f;  d.t_max = 345.0f;  d.i_max = 10.0f;
     d.gate_nis = 20.0f;  d.gate_k0 = 30u;  d.max_rej = 10u;
     d.nis_alpha = 0.02f;  d.nis_limit = 5.0f;
+    d.ibias_alpha = 0.02f;  d.ibias_thresh = 0.0055f;
+    d.ibias_k0 = 150u;  d.ibias_count_limit = 20u;
 
     BMS_EKF_Configure(ekf, &p, &c, &d, init_soc);
 }
@@ -244,6 +248,23 @@ void BMS_EKF_StepEx(BMS_EKF_t *ekf, float current_A, float voltage_meas_V, float
     sq = (nis < 100.0f) ? nis : 100.0f;
     ekf->nis_avg = (1.0f - ekf->diag.nis_alpha) * ekf->nis_avg + ekf->diag.nis_alpha * sq;
     if (ekf->k > 100u && ekf->nis_avg > ekf->diag.nis_limit) { flags |= BMS_FAULT_INCONSISTENT; }
+
+    /* 7b. current-bias monitor (bit 32) */
+    if (ekf->k > (uint32_t)ekf->diag.ibias_k0 && xu[0] >= 0.08f && xu[0] <= 0.95f) {
+        if (current_A >= 0.0f) {
+            ekf->innov_avg = (1.0f - ekf->diag.ibias_alpha) * ekf->innov_avg + ekf->diag.ibias_alpha * r;
+            if (ekf->innov_avg > ekf->diag.ibias_thresh) {
+                ekf->ibias_cnt += 1u;
+            } else if (ekf->ibias_cnt > 0u) {
+                ekf->ibias_cnt -= 1u;
+            }
+        } else if (ekf->ibias_cnt > 0u) {
+            ekf->ibias_cnt -= 1u;
+        }
+        if (ekf->ibias_cnt >= ekf->diag.ibias_count_limit) {
+            flags |= BMS_FAULT_I_OFFSET;
+        }
+    }
 
     /* 8. commit state */
     for (i = 0; i < BMS_STATE_DIM; i++) {

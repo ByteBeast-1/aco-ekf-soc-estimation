@@ -5,7 +5,8 @@ function [st, out] = bms_est_step(st, I, V, T, P, mode)
 %       4 = Sage-Husa adaptation of Q             8 = online capacity (SOH) state
 %
 %   Diagnostic code (sum of): 1 voltage out of range | 2 temperature out of range |
-%   4 current out of range | 8 innovation rejected by gate | 16 filter inconsistent (NIS)
+%   4 current out of range | 8 innovation rejected by gate | 16 filter inconsistent (NIS) |
+%   32 current sensor offset fault (persistent innovation bias)
     st.k = st.k + 1.0;
     flags = 0.0;
 
@@ -93,6 +94,23 @@ function [st, out] = bms_est_step(st, I, V, T, P, mode)
     st.nis_avg = (1.0 - P.nis_alpha) * st.nis_avg + P.nis_alpha * min(nis, 100.0);
     if st.k > 100 && st.nis_avg > P.nis_limit
         flags = flags + 16.0;
+    end
+
+    % ---- 7. current-bias monitor (bit 32) ----------------------------------
+    if st.k > P.ibias_k0 && xu(1) >= P.ibias_soc_min && xu(1) <= 0.95
+        if I >= 0.0
+            st.innov_avg = (1.0 - P.ibias_alpha) * st.innov_avg + P.ibias_alpha * r;
+            if st.innov_avg > P.ibias_thresh
+                st.ibias_cnt = st.ibias_cnt + 1.0;
+            else
+                st.ibias_cnt = max(0.0, st.ibias_cnt - 1.0);
+            end
+        else
+            st.ibias_cnt = max(0.0, st.ibias_cnt - 1.0);
+        end
+        if st.ibias_cnt >= P.ibias_count_limit
+            flags = flags + 32.0;
+        end
     end
 
     st.x      = xu;

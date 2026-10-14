@@ -32,6 +32,7 @@ extern "C" {
 #define BMS_FAULT_I_RANGE      4u    /* current magnitude above the limit                      */
 #define BMS_FAULT_REJECTED     8u    /* innovation rejected by the NIS gate                    */
 #define BMS_FAULT_INCONSISTENT 16u   /* running mean NIS too high: model/noise mismatch        */
+#define BMS_FAULT_I_OFFSET     32u   /* persistent innovation bias: current sensor offset      */
 
 typedef struct {
     float R0_ref;   /* Ohmic resistance at the reference temperature [Ohm]  */
@@ -66,6 +67,10 @@ typedef struct {
     uint16_t max_rej;            /* force-accept after this many rejects in a row */
     float    nis_alpha;          /* consistency monitor smoothing factor  */
     float    nis_limit;          /* flag if smoothed NIS exceeds this     */
+    float    ibias_alpha;        /* current-bias monitor smoothing factor */
+    float    ibias_thresh;       /* innovation threshold for offset fault */
+    uint16_t ibias_k0;           /* samples before monitor arms           */
+    uint16_t ibias_count_limit;  /* persistence samples before flag       */
 } BMS_Diag_Config_t;
 
 typedef struct {
@@ -88,8 +93,10 @@ typedef struct {
 
     float    T_last;                               /* last plausible temperature     */
     float    nis_avg;                              /* smoothed NIS                   */
+    float    innov_avg;                            /* smoothed innovation for bias   */
     uint32_t k;                                    /* samples processed              */
     uint16_t rej;                                  /* consecutive rejected samples   */
+    uint16_t ibias_cnt;                            /* persistence count for bias     */
     uint8_t  is_initialized;
 } BMS_EKF_t;
 

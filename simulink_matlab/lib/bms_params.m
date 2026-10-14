@@ -64,6 +64,11 @@ function P = bms_params(variant, tuning)
     P.max_rej  = 10;             % force-accept after N consecutive rejects
     P.nis_alpha = 0.02;          % consistency monitor EMA factor
     P.nis_limit = 5.0;           % expected mean NIS ~ 1
+    P.ibias_k0  = 150;           % samples before current-bias monitor arms
+    P.ibias_soc_min = 0.08;      % monitor valid window (SOC >= 8%)
+    P.ibias_alpha = 0.02;        % innovation smoothing factor
+    P.ibias_thresh = 0.0055;     % innovation threshold [V] (5.5 mV)
+    P.ibias_count_limit = 20;    % persistence samples before flagging fault
 
     % --- adaptation (SOTA estimator) --------------------------------------
     P.sota_mode = 2;             % bit mask, see bms_est_step (ablation: only R-adaptation helps on real data)

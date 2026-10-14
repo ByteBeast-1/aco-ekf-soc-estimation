@@ -90,6 +90,7 @@ function ok = run_bms_regression(opts)
     profs = {'udds', 'pulse', 'cc', 'cccv'};
     rng(2024, 'twister');
     mc = struct('ekf', zeros(nMC, 4), 'sota', zeros(nMC, 4), 'cc', zeros(nMC, 4));
+    mc_fp = 0;
     for i = 1:nMC
         Pi = P;
         Pi.plant_Qn_scale = 0.90 + 0.15 * rand();
@@ -102,6 +103,7 @@ function ok = run_bms_regression(opts)
         a = bms_metrics(L.soc_ekf,  L.soc_true, skip);  mc.ekf(i, :)  = [a.mae a.rmse a.max a.p95];
         b = bms_metrics(L.soc_sota, L.soc_true, skip);  mc.sota(i, :) = [b.mae b.rmse b.max b.p95];
         c = bms_metrics(L.soc_cc,   L.soc_true, skip);  mc.cc(i, :)   = [c.mae c.rmse c.max c.p95];
+        mc_fp = mc_fp + nnz(bitand(L.fault_ekf, 32) > 0);
     end
     fprintf('  %-22s %9s %9s %9s %9s\n', 'MAE / max error [%]', 'mean MAE', 'worst MAE', 'p95 MAE', 'worst max');
     for n = {'cc', 'ekf', 'sota'}
@@ -114,6 +116,8 @@ function ok = run_bms_regression(opts)
     check('Monte Carlo: EKF worst instantaneous error', max(mc.ekf(:,3)) < TH.mc_max_err, sprintf('%.3f %% < %.1f', max(mc.ekf(:,3)), TH.mc_max_err));
     check('Monte Carlo: EKF beats Coulomb counting', mean(mc.ekf(:,1)) < 0.2 * mean(mc.cc(:,1)), ...
         sprintf('%.3f vs %.3f %%', mean(mc.ekf(:,1)), mean(mc.cc(:,1))));
+    check('Monte Carlo: zero false positives on current-offset detector (bit 32)', mc_fp == 0, ...
+        sprintf('%d flagged samples over %d clean runs', mc_fp, nMC));
 
     %% ---- 3. Fault injection --------------------------------------------------------
     fprintf('\n== 3. Fault injection (synthetic UDDS, faults between t=900..1200 s) ==\n');
@@ -121,7 +125,8 @@ function ok = run_bms_regression(opts)
     base = struct('I', I, 'soc0', soc0, 'init_err', -0.10, 'seed', 77, 'fault_mode', 0);
     L0 = bms_simulate(P, base);   m0 = bms_metrics(L0.soc_ekf, L0.soc_true, skip);
     names = {'none', 'current offset +0.25 A', 'voltage glitches +-0.5 V', 'thermistor open-circuit'};
-    flag_bit = [0 0 8 2];         % expected diagnostic bit indexed by fault mode + 1 (mode 1 = silent drift, no flag)
+    flag_bit = [0 32 8 2];        % expected diagnostic bit indexed by fault mode + 1
+    t_f1_delay = NaN;
     for fm = 0:3
         sc = base;  sc.fault_mode = fm;  L = bms_simulate(P, sc);
         m = bms_metrics(L.soc_ekf, L.soc_true, skip);
@@ -130,13 +135,19 @@ function ok = run_bms_regression(opts)
         fprintf('  mode %d %-26s max err %5.2f %%  MAE %5.3f %%  flag raised in window: %d\n', fm, names{fm+1}, m.max, m.mae, det);
         rows(end + 1, :) = {'fault', names{fm+1}, m.mae, m.rmse, m.p95, m.max}; %#ok<AGROW>
         if fm == 0
-            check('Fault-free run raises no hard diagnostics', ~any(bitand(L.fault_ekf, 15) > 0), ...
-                sprintf('%d flagged samples', nnz(bitand(L.fault_ekf, 15) > 0)));
+            check('Fault-free run raises no hard diagnostics', ~any(bitand(L.fault_ekf, 63) > 0), ...
+                sprintf('%d flagged samples', nnz(bitand(L.fault_ekf, 63) > 0)));
         else
             check(sprintf('Fault %d (%s): bounded error', fm, names{fm+1}), m.max < m0.max + TH.fault_extra, ...
                 sprintf('max %.2f %% vs fault-free %.2f %%', m.max, m0.max));
-            if fm >= 2
+            if fm >= 1
                 check(sprintf('Fault %d (%s): detected by diagnostics', fm, names{fm+1}), det, 'flag bit set in fault window');
+            end
+            if fm == 1
+                k_flag = find(bitand(L.fault_ekf, 32) > 0, 1);
+                t_f1_delay = k_flag - 900;
+                check('Fault 1 (current offset +0.25 A): flagged within stated latency after onset', ...
+                    det && (t_f1_delay <= 210), sprintf('latency %d s <= 210 s (flagged at t=%d s)', t_f1_delay, k_flag));
             end
         end
     end
@@ -160,6 +171,15 @@ function ok = run_bms_regression(opts)
     check('NASA fresh unseen cells: EKF MAE', all(nasa(fresh, 2) < TH.nasa_fresh_mae), sprintf('%.2f / %.2f %% < %.1f', nasa(fresh, 2), TH.nasa_fresh_mae));
     check('NASA all unseen cycles: EKF MAE', all(nasa(:, 2) < TH.nasa_any_mae), sprintf('worst %.2f %% < %.1f', max(nasa(:, 2)), TH.nasa_any_mae));
     check('NASA: EKF beats Coulomb counting on every cycle', all(nasa(:, 2) < nasa(:, 1)), sprintf('mean %.2f vs %.2f %%', mean(nasa(:,2)), mean(nasa(:,1))));
+    nasa_fp = 0;
+    nasa_9_cases = {{'B0005',1},{'B0005',60},{'B0005',120},{'B0006',1},{'B0006',60},{'B0006',120},{'B0007',1},{'B0007',60},{'B0007',120}};
+    for i = 1:numel(nasa_9_cases)
+        sc_ = bms_replay_scenario(nasa_9_cases{i}{:}, -0.15);
+        L = bms_simulate(Pn, sc_);
+        nasa_fp = nasa_fp + nnz(bitand(L.fault_ekf, 32) > 0);
+    end
+    check('NASA: zero false positives on current-offset detector (bit 32)', nasa_fp == 0, ...
+        sprintf('%d flagged samples across all 9 cycles (B0005, B0006, B0007 @ 1, 60, 120)', nasa_fp));
 
     %% ---- 4b. Real NASA charge cycles + capacity (SOH) estimation -----------------------------
     fprintf('\n== 4b. Real CC-CV charge cycles (fresh cells; reference assumes start from ~empty) ==\n');
@@ -226,7 +246,7 @@ function ok = run_bms_regression(opts)
     if opts.sil
         fprintf('\n== 7. Software-in-the-loop: C firmware (compiled) vs MATLAB float32 ==\n');
         Ps = bms_params('synthetic');  [Iu, s0u] = bms_profile('udds');  sil = [];
-        for fm = [0 2 3]
+        for fm = [0 1 2 3]
             scs_ = struct('I', Iu, 'soc0', s0u, 'init_err', -0.10, 'seed', 5, 'fault_mode', fm);
             sil = [sil, bms_sil_run(Ps, scs_, sprintf('sim udds fault %d', fm))]; %#ok<AGROW>
         end
