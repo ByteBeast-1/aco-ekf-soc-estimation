@@ -119,7 +119,7 @@ aco-ekf-soc-estimation/
 | Injected Fault Mode ($t=900\text{--}1200\text{ s}$) | Filter MAE (%) | Max Error (%) | Diagnostic Flag Status | Safety Behavior |
 | :--- | :---: | :---: | :---: | :--- |
 | **Mode 0: Normal (No Fault)** | 0.146% | 0.40% | Clear (0) | Baseline nominal tracking |
-| **Mode 1: Current Sensor Bias (+0.25 A)** | 0.371% | 0.75% | Unflagged (Silent Drift) | Error bounded to 0.75% via closed-loop voltage feedback |
+| **Mode 1: Current Sensor Bias (+0.25 A)** | 0.371% | 0.75% | Unflagged (Silent Drift) | Sensor bias not detected by outlier gate; error reaches 0.75% |
 | **Mode 2: Voltage Sensor Glitches ($\pm 0.5\text{ V}$)** | 0.144% | 0.40% | **Detected (Bit 8: Residual Rejected)** | Outliers rejected by NIS gating; zero error impact |
 | **Mode 3: Thermistor Disconnect (Open Circuit)** | 0.147% | 0.40% | **Detected (Bit 2: Temp Out of Range)** | Holds last good temperature (`T = st.T_last`) |
 
@@ -131,22 +131,29 @@ aco-ekf-soc-estimation/
 ### Table 4: Cross-Feeding Estimator Matrix (Simulated Plant vs. Real NASA Replay with Faults)
 
 > [!NOTE]
-> **Cross-Feeding Methodology:** Evaluates all three estimator variants (Baseline EKF, SOTA Adaptive EKF, and Online Capacity SOH EKF) across both simulated plant conditions (known truth, sensor faults, Monte Carlo initial error) and real NASA experimental cell replay with and without sensor faults injected (`BMS_InjectFaultsOnReplay = 1`). Metrics exclude the initial 120 s convergence window.
+> **Cross-Feeding Methodology & Metric Definitions:**
+> Evaluates all three estimator variants (Baseline EKF, Adaptive EKF (Sage-Husa), and Online Capacity SOH EKF) across simulated plant conditions (known truth, sensor faults, 40-run Monte Carlo ensemble) and real NASA experimental cell replay with and without sensor faults injected (`BMS_InjectFaultsOnReplay = 1`). Metrics exclude the initial 120 s convergence window:
+> - **Time to $\le 1\%$ (stay 60s):** Time in seconds to first enter $|err| \le 1.0\%$ and remain $\le 1.0\%$ for at least 60 consecutive seconds. Reported as `N/A (>1%)` if never maintained (no looser fallback threshold).
+> - **Post-120s Err $>1\%$:** Fraction/percentage of samples strictly after the 120 s convergence window ($t > 120\text{ s}$) where absolute error exceeds $1.0\%$.
+> - **Fault Diagnostics:** Evaluates per-spike detection for periodic glitches (spikes occur every 25 samples between $t = 899\text{ s}$ and $1199\text{ s}$, 13 spikes total) reporting fraction of spikes flagged and first-flag delay after the first spike.
 
-| Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity SOH EKF MAE | Worst-Case Max Error | Fault Latency |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **sim_clean_udds** | `synthetic` | Mode 0 | 0.163% | 0.166% | 0.287% | 0.73% | None |
-| **sim_pulse** | `synthetic` | Mode 0 | 0.112% | 0.114% | 0.275% | 0.70% | None |
-| **sim_fault1_I_offset** | `synthetic` | Mode 1 | 0.387% | 0.364% | 0.203% | 0.74% | Unflagged |
-| **sim_fault2_V_spike** | `synthetic` | Mode 2 | 0.162% | 0.166% | 0.286% | 0.73% | **24 s** |
-| **sim_fault3_T_open** | `synthetic` | Mode 3 | 0.160% | 0.163% | 0.281% | 0.73% | **0 s** |
-| **sim_monte_carlo_42** | `synthetic` | Mode 0 | 0.191% | 0.183% | 0.334% | 0.94% | None |
-| **nasa_B0005_clean** | `nasa` | Mode 0 | 0.664% | 0.721% | 1.162% | 2.87% | None |
-| **nasa_B0005_fault1** | `nasa` | Mode 1 | 0.644% | 0.771% | 1.270% | 2.91% | Unflagged |
-| **nasa_B0005_fault2** | `nasa` | Mode 2 | 0.664% | 0.721% | 1.162% | 2.87% | **24 s** |
-| **nasa_B0005_fault3** | `nasa` | Mode 3 | 0.669% | 0.722% | 1.137% | 2.85% | **0 s** |
-| **nasa_B0007_clean** | `nasa` | Mode 0 | 0.929% | 1.110% | 1.693% | 4.34% | None |
-| **nasa_B0005_aged_120** | `nasa` | Mode 0 | 4.893% | 4.714% | 3.089% | 9.44% | None |
+> [!IMPORTANT]
+> **Summary:** Baseline EKF is best on healthy cells, Capacity SOH EKF is best on the aged cell, and Adaptive EKF (Sage-Husa) shows no clear gain.
+
+| Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity SOH EKF MAE | Worst Max Err | Time to $\le 1\%$ (stay 60s) | Post-120s Err $>1\%$ | Fault Diagnostics |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **sim_clean_udds** | `synthetic` | Mode 0 | 0.163% | 0.166% | 0.287% | 0.73% | 2 s | 0.0% | None |
+| **sim_pulse** | `synthetic` | Mode 0 | 0.112% | 0.114% | 0.275% | 0.70% | 2 s | 0.0% | None |
+| **sim_fault1_I_offset** | `synthetic` | Mode 1 | 0.387% | 0.364% | 0.203% | 0.74% | 2 s | 0.0% | Unflagged |
+| **sim_fault2_V_spike** | `synthetic` | Mode 2 | 0.162% | 0.166% | 0.286% | 0.73% | 2 s | 0.0% | **100% spikes (delay 0s)** |
+| **sim_fault3_T_open** | `synthetic` | Mode 3 | 0.160% | 0.163% | 0.281% | 0.73% | 2 s | 0.0% | **Instant (delay 0s)** |
+| **sim_monte_carlo** | `synthetic` | Mode 0 | 0.169% | 0.180% | 0.304% | 1.16% | 24 s | 0.0% | None |
+| **nasa_B0005_clean** | `nasa` | Mode 0 | 0.664% | 0.721% | 1.162% | 2.87% | 689 s | 17.7% | None |
+| **nasa_B0005_fault1** | `nasa` | Mode 1 | 0.644% | 0.771% | 1.270% | 2.91% | 689 s | 20.8% | Unflagged |
+| **nasa_B0005_fault2** | `nasa` | Mode 2 | 0.664% | 0.721% | 1.162% | 2.87% | 689 s | 17.7% | **100% spikes (delay 0s)** |
+| **nasa_B0005_fault3** | `nasa` | Mode 3 | 0.669% | 0.722% | 1.137% | 2.85% | 689 s | 17.7% | **Instant (delay 0s)** |
+| **nasa_B0007_clean** | `nasa` | Mode 0 | 0.929% | 1.110% | 1.693% | 4.34% | 460 s | 26.1% | None |
+| **nasa_B0005_aged_120** | `nasa` | Mode 0 | 4.893% | 4.714% | 3.089% | 9.44% | 282 s | 85.2% | None |
 
 
 <!-- RESULTS_TABLE_END -->

@@ -68,7 +68,7 @@ To eliminate code duplication, enforce modularity, and support multi-instance ex
 - **Interfaces:** Strictly bus-typed. Accepts [`BMS_Measurement`](#bms_measurement) as input and emits [`BMS_Estimate`](#bms_estimate) as output.
 - **Coder-Constant Parameterization:** The model block accepts an operating mode parameter (`bms_est_mode`), configuring the internal estimation algorithm without code branching or separate model files:
   - `Mode = 0`: Baseline Joseph-form Extended Kalman Filter with fixed tuned covariances ($Q^*, R^*$).
-  - `Mode = 2`: SOTA Adaptive EKF with Sage-Husa dynamic measurement noise covariance adaptation and recursive least squares ($R_0$) estimation.
+  - `Mode = 2`: Adaptive EKF (Sage-Husa) with dynamic measurement noise covariance adaptation and recursive least squares ($R_0$) estimation.
   - `Mode = 10`: SOH Capacity EKF with dual-state estimation tracking fading cell capacity over degradation cycles.
 - **Model Sharing:** Reused across all top-level models—[`advanced_bms_aco_ekf.slx`](../simulink_matlab/advanced_bms_aco_ekf.slx) (1 instance), [`sota_bms_aco_ekf.slx`](../simulink_matlab/sota_bms_aco_ekf.slx) (3 parallel instances), and [`bms_unified.slx`](../simulink_matlab/bms_unified.slx) (3 parallel instances).
 
@@ -95,7 +95,7 @@ graph TD
     subgraph Estimators ["Estimator Bank (3x bms_estimator_ref)"]
         direction TB
         E1["Baseline EKF (Mode 0)"]
-        E2["Adaptive SOTA EKF (Mode 2)"]
+        E2["Adaptive EKF (Sage-Husa, Mode 2)"]
         E3["Capacity SOH EKF (Mode 10)"]
     end
 
@@ -155,18 +155,20 @@ When processed and exported by [`run_all.m`](../simulink_matlab/run_all.m), `Tim
 
 To rigorously benchmark estimator resilience across both known physics and physical experimental data, [`bms_cross_matrix.m`](../simulink_matlab/bms_cross_matrix.m) executes a cross-feeding test matrix evaluating all three estimator variants:
 - **Baseline EKF (Mode 0):** Conventional Joseph-form EKF with static ACO-tuned covariances.
-- **Adaptive EKF (Mode 2):** SOTA dynamic measurement noise covariance ($R_k$) adaptation via Sage-Husa.
+- **Adaptive EKF (Sage-Husa, Mode 2):** Dynamic measurement noise covariance ($R_k$) adaptation via Sage-Husa.
 - **Capacity SOH EKF (Mode 10):** Dual-state joint SOC and capacity-ratio tracking.
 
 ### Evaluated Scenario Regimes:
-1. **Simulated Plant Truth (`BMS_Source == 1`):** Nominal UDDS, dynamic pulses, sensor faults (current offset, voltage spikes, thermistor disconnect), and Monte Carlo initial error ($\pm 20\%$).
+1. **Simulated Plant Truth (`BMS_Source == 1`):** Nominal UDDS, dynamic pulses, sensor faults (current offset, voltage spikes, thermistor disconnect), and a full 40-run Monte Carlo ensemble ($\pm 20\%$ initial offset and parameter dispersion).
 2. **NASA Laboratory Replay (`BMS_Source == 2`):** Fresh cells (B0005, B0007), heavily aged cells (120 cycles), and fault-injected replay via `BMS_InjectFaultsOnReplay = 1`.
 
 ### Metrics Tracked per Cell:
-- **`MAE (%)` & `RMSE (%)`:** Steady-state tracking accuracy excluding the 120 s convergence window.
+- **`MAE (%)` & `RMSE (%)`:** Steady-state tracking accuracy excluding the initial 120 s convergence window.
 - **`P95 (%)` & `Max Error (%)`:** Bounded worst-case error under dynamic excitation and sensor noise.
-- **`Convergence Time (s)`:** Measured settling time from $t=0$ until the absolute error permanently settles within $\le 1.0\%$.
-- **`Fault Detection Latency (s)`:** Delay in seconds from fault injection onset ($t=900\text{ s}$) to the first active diagnostic bitmask flag (`FaultCode > 0`).
+- **`Time to <= 1% (stay 60s)` (`t_enter_1pct_s`):** Measured time (s) from $t=0$ until the absolute error first enters $|err| \le 1.0\%$ and remains $\le 1.0\%$ for at least 60 consecutive seconds. Reported as `NaN` if never maintained (no fallback).
+- **`Post-120s Err > 1%` (`frac_err_gt_1pct`):** Fraction of samples strictly after the 120 s window ($t > 120\text{ s}$) where absolute error exceeds $1.0\%$.
+- **`Spike Flag Rate` (`spike_flag_rate`):** Fraction of periodic voltage spike occurrences (spikes occur every 25 samples between $t = 899\text{ s}$ and $1199\text{ s}$, 13 spikes total) flagged by the outlier gate.
+- **`First Flag Delay` (`first_flag_delay_s`):** Delay in seconds from the first fault spike (or fault onset for step faults) to the first active diagnostic flag.
 
 Outputs are saved to `results/cross_matrix.csv` and visualized in `results/fig_cross_matrix.png` and `figures/17_simulink_cross_matrix.png`.
 

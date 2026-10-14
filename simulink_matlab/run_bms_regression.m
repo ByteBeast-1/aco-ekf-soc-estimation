@@ -313,12 +313,13 @@ function ok = run_bms_regression(opts)
             check('Cross-matrix: adaptive EKF mean MAE bounded on synthetic plant', mean_syn_mae < 1.0, ...
                 sprintf('mean MAE %.3f %% < 1.0', mean_syn_mae));
 
-            % Check fault detection latency on NASA replay
+            % Check per-spike detection and first-flag delay on NASA replay
             rep_f2_mask = strcmp(t_cross.source, 'nasa') & (t_cross.fault_mode == 2);
-            f2_lats = t_cross.fault_latency_s(rep_f2_mask);
-            f2_lat_ok = ~isempty(f2_lats) && ~isnan(f2_lats(1)) && (f2_lats(1) <= 30);
-            check('Cross-matrix: NASA replay fault detection latency is bounded', f2_lat_ok, ...
-                sprintf('latency %.0f s <= 30', f2_lats(1)));
+            spike_rates = t_cross.spike_flag_rate(rep_f2_mask);
+            delays = t_cross.first_flag_delay_s(rep_f2_mask);
+            spike_det_ok = ~isempty(spike_rates) && all(spike_rates == 1.0) && all(delays <= 25);
+            check('Cross-matrix: NASA replay fault detection (100% spikes flagged, delay <= 25 s)', spike_det_ok, ...
+                sprintf('spike rate %.0f %%, delay %.0f s', spike_rates(1) * 100, delays(1)));
 
             % Check capacity EKF performance on NASA data
             cap_mask = strcmp(t_cross.estimator, 'Capacity_SOH_EKF') & strcmp(t_cross.source, 'nasa');

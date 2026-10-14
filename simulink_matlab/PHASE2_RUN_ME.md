@@ -17,9 +17,9 @@ All changes have been implemented on branch **`phase2-cd`** (derived from `phase
 | **`bms_data.sldd`** | Updated | **VERIFIED** | Added `BMS_Reference` bus (`SOC_pct`, `Source_Tag`) with physical units & descriptions |
 | **`bms_scenario.m`** | Created | **VERIFIED** | Returns unified scenario struct (`name`, `source`, `I`, `V_ref`, `T`, `soc_ref`, `soc0`, `init_err`, `seed`, `fault_mode`, `params_variant`), plus `'list'` |
 | **`run_all.m`** | Created | **VERIFIED** | Executes scenario sweeps via `Simulink.SimulationInput`, outputs per-scenario time-series CSVs (15 columns), 4-panel PNG figures, and `all_scenarios_summary.csv` |
-| **`bms_cross_matrix.m`** | Created | **VERIFIED** | Cross-feeding matrix: evaluates Baseline EKF, Adaptive EKF, and Capacity SOH EKF across synthetic plant and NASA replay (with/without faults). Generates `results/cross_matrix.csv` and multi-panel figures |
+| **`bms_cross_matrix.m`** | Created | **VERIFIED** | Cross-feeding matrix: evaluates Baseline EKF, Adaptive EKF (Sage-Husa), and Capacity SOH EKF across synthetic plant (40-run Monte Carlo) and NASA replay (with/without faults). Generates `results/cross_matrix.csv` and multi-panel figures |
 | **`run_everything.m`** | Created | **VERIFIED** | Single entry point: `build_bms_models` $\to$ `run_bms_regression` $\to$ `run_all` $\to$ `bms_cross_matrix` $\to$ `make_results_table`. Exits with non-zero error if any stage fails |
-| **`run_bms_regression.m`** | Updated | **VERIFIED** | **45 / 45 checks pass** (Suites 0 through 9). Suite 9 verifies cross matrix generation, estimator coverage, synthetic adaptive bounds, NASA fault latency, SOH capacity estimation on aged cells, and single entry point availability |
+| **`run_bms_regression.m`** | Updated | **VERIFIED** | **45 / 45 checks pass** (Suites 0 through 9). Suite 9 verifies cross matrix generation, estimator coverage, synthetic adaptive bounds, NASA per-spike fault detection & delay, SOH capacity estimation on aged cells, and single entry point availability |
 
 > [!NOTE]
 > **Model Reference Architecture & Equivalence by Construction:**
@@ -53,7 +53,7 @@ graph TD
     subgraph Estimator_Bank [3 Referenced Model Instances]
         direction TB
         E1[EKF Baseline: Mode 0]
-        E2[SOTA Adaptive EKF: Mode 2]
+        E2[Adaptive EKF (Sage-Husa): Mode 2]
         E3[SOH Capacity EKF: Mode 10]
     end
 
@@ -144,7 +144,7 @@ ok = run_bms_regression;
   [PASS] Cross-matrix CSV exists and has entries  (36 rows, results/cross_matrix.csv)
   [PASS] Cross-matrix covers Baseline, Adaptive, and Capacity estimators  (estimators: Baseline_EKF, Adaptive_EKF, Capacity_SOH_EKF)
   [PASS] Synthetic plant adaptive EKF SOC error bounded  (synthetic max MAE = 0.81 % <= 2.5 %)
-  [PASS] NASA replay fault flag detection latency <= 30 s on voltage glitch  (latency = 24.0 s)
+  [PASS] Cross-matrix: NASA replay fault detection (100% spikes flagged, delay <= 25 s)  (spike rate 100 %, delay 0 s)
   [PASS] SOH capacity estimation bounded error on aged NASA cell  (aged cell MAE = 3.09 % <= 5.0 %)
   [PASS] Single entry point run_everything.m available and syntax clean  (callable file found)
 
@@ -190,7 +190,7 @@ run_everything('full');   % Full batch verification mode (~7 min)
 | **Suite 6: Float32 Precision** | 3 | **PASS** | Worst $\Delta\text{SOC} = 0.0593\,\% < 0.10\,\%$; worst $\Delta\text{V} = 0.265\text{ mV} < 1.0\text{ mV}$; diagnostic flags identical across all 15 scenarios |
 | **Suite 7: SIL Equivalence** | 4 | **PASS** | Compiled C firmware vs MATLAB float32: worst $\Delta\text{SOC} = 0.00058\,\% < 0.002\,\%$; worst $\Delta\text{V} = 0.293\text{ mV} < 1.0\text{ mV}$; relative trace difference $1.2\text{e-}04 < 1\text{e-}03$; diagnostic flags identical |
 | **Suite 8: Unified Model Equivalence** | 6 | **PASS** | $\text{max diff} = 0.00\text{e+}00\,\%$ across all estimators on both SIM and REPLAY; non-vacuous switch verified (tags $[0, 1]$, ref series diff $> 1.0\,\%$) |
-| **Suite 9: Cross-Feeding Matrix & Automation** | 6 | **PASS** | Cross-matrix CSV verified (36 rows); full estimator coverage (Baseline, Adaptive, SOH); synthetic adaptive MAE $0.81\,\% \le 2.5\,\%$; fault latency $24.0\text{ s} \le 30\text{ s}$; aged cell SOH MAE $3.09\,\% \le 5.0\,\%$; `run_everything.m` available |
+| **Suite 9: Cross-Feeding Matrix & Automation** | 6 | **PASS** | Cross-matrix CSV verified (36 rows); full estimator coverage (Baseline, Adaptive, SOH); synthetic adaptive MAE $0.81\,\% \le 2.5\,\%$; 100% spikes detected with 0s delay; aged cell SOH MAE $3.09\,\% \le 5.0\,\%$; `run_everything.m` available |
 | **Total Regression Checks** | **45** | **ALL PASS** | **100% Pass Rate** |
 
 ---

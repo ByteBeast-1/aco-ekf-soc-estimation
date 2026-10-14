@@ -109,7 +109,7 @@ def format_tables(rows):
         if case == "none":
             lines.append(f"| **Mode 0: Normal (No Fault)** | {mae:.3f}% | {max_err:.2f}% | Clear (0) | Baseline nominal tracking |")
         elif "current offset" in case:
-            lines.append(f"| **Mode 1: Current Sensor Bias (+0.25 A)** | {mae:.3f}% | {max_err:.2f}% | Unflagged (Silent Drift) | Error bounded to 0.75% via closed-loop voltage feedback |")
+            lines.append(f"| **Mode 1: Current Sensor Bias (+0.25 A)** | {mae:.3f}% | {max_err:.2f}% | Unflagged (Silent Drift) | Sensor bias not detected by outlier gate; error reaches {max_err:.2f}% |")
         elif "voltage glitches" in case:
             lines.append(f"| **Mode 2: Voltage Sensor Glitches ($\\pm 0.5\\text{{ V}}$)** | {mae:.3f}% | {max_err:.2f}% | **Detected (Bit 8: Residual Rejected)** | Outliers rejected by NIS gating; zero error impact |")
         elif "thermistor open" in case:
@@ -129,10 +129,17 @@ def format_cross_table(cross_rows):
     lines.append("### Table 4: Cross-Feeding Estimator Matrix (Simulated Plant vs. Real NASA Replay with Faults)")
     lines.append("")
     lines.append("> [!NOTE]")
-    lines.append("> **Cross-Feeding Methodology:** Evaluates all three estimator variants (Baseline EKF, SOTA Adaptive EKF, and Online Capacity SOH EKF) across both simulated plant conditions (known truth, sensor faults, Monte Carlo initial error) and real NASA experimental cell replay with and without sensor faults injected (`BMS_InjectFaultsOnReplay = 1`). Metrics exclude the initial 120 s convergence window.")
+    lines.append("> **Cross-Feeding Methodology & Metric Definitions:**")
+    lines.append("> Evaluates all three estimator variants (Baseline EKF, Adaptive EKF (Sage-Husa), and Online Capacity SOH EKF) across simulated plant conditions (known truth, sensor faults, 40-run Monte Carlo ensemble) and real NASA experimental cell replay with and without sensor faults injected (`BMS_InjectFaultsOnReplay = 1`). Metrics exclude the initial 120 s convergence window:")
+    lines.append("> - **Time to $\\le 1\\%$ (stay 60s):** Time in seconds to first enter $|err| \\le 1.0\\%$ and remain $\\le 1.0\\%$ for at least 60 consecutive seconds. Reported as `N/A (>1%)` if never maintained (no looser fallback threshold).")
+    lines.append("> - **Post-120s Err $>1\\%$:** Fraction/percentage of samples strictly after the 120 s convergence window ($t > 120\\text{ s}$) where absolute error exceeds $1.0\\%$.")
+    lines.append("> - **Fault Diagnostics:** Evaluates per-spike detection for periodic glitches (spikes occur every 25 samples between $t = 899\\text{ s}$ and $1199\\text{ s}$, 13 spikes total) reporting fraction of spikes flagged and first-flag delay after the first spike.")
     lines.append("")
-    lines.append("| Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity SOH EKF MAE | Worst-Case Max Error | Fault Latency |")
-    lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
+    lines.append("> [!IMPORTANT]")
+    lines.append("> **Summary:** Baseline EKF is best on healthy cells, Capacity SOH EKF is best on the aged cell, and Adaptive EKF (Sage-Husa) shows no clear gain.")
+    lines.append("")
+    lines.append("| Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity SOH EKF MAE | Worst Max Err | Time to $\\le 1\\%$ (stay 60s) | Post-120s Err $>1\\%$ | Fault Diagnostics |")
+    lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
 
     scenarios = []
     by_sc = {}
@@ -160,15 +167,41 @@ def format_cross_table(cross_rows):
                 all_max.append(float(r_x["max_err_pct"]))
         max_str = f"{max(all_max):.2f}%" if all_max else "N/A"
 
-        lat_val = r_base.get("fault_latency_s", "")
-        if lat_val and lat_val.lower() != "nan":
-            lat_str = f"**{float(lat_val):.0f} s**"
-        elif int(float(fmode)) > 0:
-            lat_str = "Unflagged"
+        # Time to <= 1% and stay 60s
+        t_enter_raw = r_base.get("t_enter_1pct_s", "")
+        if t_enter_raw and t_enter_raw.lower() != "nan":
+            t_enter_str = f"{float(t_enter_raw):.0f} s"
         else:
-            lat_str = "None"
+            t_enter_str = "N/A (>1%)"
 
-        lines.append(f"| **{sc}** | `{src}` | Mode {fmode} | {mae_b} | {mae_a} | {mae_c} | {max_str} | {lat_str} |")
+        # Post-120s fraction > 1%
+        frac_raw = r_base.get("frac_err_gt_1pct", "")
+        if frac_raw and frac_raw.lower() != "nan":
+            frac_str = f"{float(frac_raw) * 100:.1f}%"
+        else:
+            frac_str = "0.0%"
+
+        # Fault Diagnostics
+        spike_rate = r_base.get("spike_flag_rate", "")
+        delay_val  = r_base.get("first_flag_delay_s", "")
+
+        fmode_int = int(float(fmode))
+        if fmode_int == 2:
+            if spike_rate and spike_rate.lower() != "nan":
+                s_pct = float(spike_rate) * 100
+                d_sec = float(delay_val) if (delay_val and delay_val.lower() != "nan") else 0
+                diag_str = f"**{s_pct:.0f}% spikes (delay {d_sec:.0f}s)**"
+            else:
+                diag_str = "**Detected**"
+        elif fmode_int == 3:
+            d_sec = float(delay_val) if (delay_val and delay_val.lower() != "nan") else 0
+            diag_str = f"**Instant (delay {d_sec:.0f}s)**"
+        elif fmode_int == 1:
+            diag_str = "Unflagged"
+        else:
+            diag_str = "None"
+
+        lines.append(f"| **{sc}** | `{src}` | Mode {fmode} | {mae_b} | {mae_a} | {mae_c} | {max_str} | {t_enter_str} | {frac_str} | {diag_str} |")
 
     lines.append("")
     return "\n".join(lines)
