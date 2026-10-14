@@ -55,3 +55,4 @@ unified_eq,synthetic_ekf,0,0,NaN,NaN
 unified_eq,nasa_replay,0,0,0,NaN
 unified_eq,switch_nonvacuous,1,1,15.8446675820702,NaN
 cross_matrix,status,1,36,NaN,NaN
+tuner_compare,status,1,26,NaN,NaN

@@ -337,7 +337,28 @@ function ok = run_bms_regression(opts)
         single_entry_ok = (exist('run_everything', 'file') == 2);
         check('Single entry point: run_everything.m exists and is callable', single_entry_ok, 'run_everything.m verified');
 
+        % Check hyperparameter tuner comparison results
+        tuner_csv = fullfile(outdir, 'tuner_compare.csv');
+        if ~isfile(tuner_csv)
+            bms_tune_compare('quick');
+        end
+        tuner_exists = isfile(tuner_csv);
+        n_tuner_rows = 0;
+        if tuner_exists
+            t_tuner = readtable(tuner_csv);
+            n_tuner_rows = height(t_tuner);
+            expected_methods = {'Hand_Tuned', 'Random_Search', 'Grid_Search', 'Nelder_Mead', 'ACO_R'};
+            methods_present = all(ismember(expected_methods, unique(t_tuner.method)));
+            has_both_sources = any(strcmp(t_tuner.source, 'synthetic')) && any(strcmp(t_tuner.source, 'nasa'));
+            tuner_ok = methods_present && has_both_sources && (n_tuner_rows >= 10);
+            check('Tuner comparison: results/tuner_compare.csv contains all attempted methods', tuner_ok, ...
+                sprintf('%d rows, %d methods across synthetic & nasa', n_tuner_rows, numel(unique(t_tuner.method))));
+        else
+            check('Tuner comparison: results/tuner_compare.csv contains all attempted methods', false, 'CSV missing');
+        end
+
         rows(end + 1, :) = {'cross_matrix', 'status', double(cross_exists), n_rows, NaN, NaN}; %#ok<AGROW>
+        rows(end + 1, :) = {'tuner_compare', 'status', double(tuner_exists), n_tuner_rows, NaN, NaN}; %#ok<AGROW>
     end
 
     %% ---- report -------------------------------------------------------------------------------------
