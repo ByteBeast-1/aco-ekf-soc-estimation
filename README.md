@@ -200,6 +200,40 @@ aco-ekf-soc-estimation/
 | **Random Uniform Search** | Real NASA | 10 | 8.03e-04 | 4.677% ± 4.181% [1.812%, 15.463%] | 3.87% | 4.50% | 10.0% (4/40 params) |
 
 
+---
+
+### Table 7: Leave-One-Cell-Out Cross-Validation Benchmark (NASA Cells B0005, B0006, B0007)
+
+> [!NOTE]
+> **Leave-One-Cell-Out Cross-Validation Setup (phase3-cv):**
+> - **Folds:** Rotate across all 3 NASA cells: tune on 2 cells' cycles #1, #60, and #120 (6 cycles); test on the 3rd cell's cycles #1, #60, and #120.
+> - **Methods:** Hand-Tuned baseline, Uniform Grid Search, Random Search (10 seeds), ACO_R (10 seeds, original bounds), and ACO_R with validation-based pick (`ACO_R_Val_Pick`, picking best seed on unseen cycle #30 outside train/test).
+> - **Budget:** Same evaluation budget across all methods.
+
+| Method | Test Cell | Mean MAE (%) | Median MAE (%) | Std MAE (%) | Worst Seed (MAE) | Fresh Cells (#1) [Med / Worst] | Aged Cells (#120) [Med / Worst] |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Hand-Tuned Baseline** | B0005 | 4.892% | 4.892% | 0.000% | 4.892% (N/A) | 3.552% (N/A) | 8.400% (N/A) |
+| **Hand-Tuned Baseline** | B0006 | 11.435% | 11.435% | 0.000% | 11.435% (N/A) | 4.827% (N/A) | 19.706% (N/A) |
+| **Hand-Tuned Baseline** | B0007 | 4.473% | 4.473% | 0.000% | 4.473% (N/A) | 3.654% (N/A) | 6.578% (N/A) |
+| *--> Hand-Tuned Baseline (Cross-Fold Mean)* | **ALL 3 CELLS** | **6.933%** | — | — | — | **4.011%** | **11.562%** |
+| **Grid Search** | B0005 | 3.061% | 3.061% | 0.000% | 3.061% (N/A) | 0.828% (N/A) | 4.894% (N/A) |
+| **Grid Search** | B0006 | 6.757% | 6.757% | 0.000% | 6.757% (N/A) | 3.879% (N/A) | 11.999% (N/A) |
+| **Grid Search** | B0007 | 2.482% | 2.482% | 0.000% | 2.482% (N/A) | 1.207% (N/A) | 3.704% (N/A) |
+| *--> Grid Search (Cross-Fold Mean)* | **ALL 3 CELLS** | **4.100%** | — | — | — | **1.971%** | **6.866%** |
+| **Random Search (10 seeds)** | B0005 | 2.763% | 2.839% | 0.324% | 3.199% (#79) | 1.290% / 1.821% | 4.181% / 5.433% |
+| **Random Search (10 seeds)** | B0006 | 6.727% | 6.713% | 0.895% | 8.062% (#9999) | 4.234% / 4.403% | 11.135% / 14.545% |
+| **Random Search (10 seeds)** | B0007 | 2.340% | 2.442% | 0.189% | 2.508% (#53) | 2.444% / 2.577% | 3.049% / 3.320% |
+| *--> Random Search (10 seeds) (Cross-Fold Mean)* | **ALL 3 CELLS** | **3.943%** | — | — | — | **2.611%** | **6.198%** |
+| **ACO_R (10 seeds)** | B0005 | 2.602% | 2.522% | 0.250% | 3.124% (#2024) | 0.975% / 1.673% | 3.981% / 4.938% |
+| **ACO_R (10 seeds)** | B0006 | 7.362% | 7.561% | 0.502% | 7.850% (#79) | 3.848% / 4.444% | 13.999% / 14.646% |
+| **ACO_R (10 seeds)** | B0007 | 2.160% | 2.078% | 0.202% | 2.603% (#101) | 2.221% / 2.684% | 2.766% / 3.451% |
+| *--> ACO_R (10 seeds) (Cross-Fold Mean)* | **ALL 3 CELLS** | **4.041%** | — | — | — | **2.304%** | **6.756%** |
+| **ACO_R Validation-Pick** | B0005 | 2.611% | 2.611% | 0.000% | 2.611% (#101) | 0.627% / 0.627% | 4.043% / 4.043% |
+| **ACO_R Validation-Pick** | B0006 | 6.372% | 6.372% | 0.000% | 6.372% (#137) | 3.934% / 3.934% | 11.020% / 11.020% |
+| **ACO_R Validation-Pick** | B0007 | 1.987% | 1.987% | 0.000% | 1.987% (#13) | 2.364% / 2.364% | 2.273% / 2.273% |
+| *--> ACO_R Validation-Pick (Cross-Fold Mean)* | **ALL 3 CELLS** | **3.657%** | — | — | — | **2.308%** | **5.779%** |
+
+
 <!-- RESULTS_TABLE_END -->
 
 *(Note: The above tables are automatically populated from `simulink_matlab/results/bms_regression_results.csv` via `python tools/make_results_table.py --update README.md`.)*

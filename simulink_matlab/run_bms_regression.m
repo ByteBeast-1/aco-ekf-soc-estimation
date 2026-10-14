@@ -380,9 +380,34 @@ function ok = run_bms_regression(opts)
             check('Widened tuner study: results/tuner_compare_wide.csv contains wide-bounds methods and per-cell metrics', false, 'CSV missing');
         end
 
+        % Check leave-one-cell-out cross-validation study results
+        cv_csv = fullfile(outdir, 'cv_study.csv');
+        if ~isfile(cv_csv)
+            cv_csv = fullfile(here, '..', 'results', 'cv_study.csv');
+        end
+        if ~isfile(cv_csv)
+            bms_cv_study('quick');
+            cv_csv = fullfile(outdir, 'cv_study.csv');
+        end
+        cv_exists = isfile(cv_csv);
+        n_cv_rows = 0;
+        if cv_exists
+            t_cv = readtable(cv_csv);
+            n_cv_rows = height(t_cv);
+            expected_cv_methods = {'Hand_Tuned', 'Grid_Search', 'Random_Search', 'ACO_R', 'ACO_R_Val_Pick'};
+            cv_methods_present = all(ismember(expected_cv_methods, unique(t_cv.method)));
+            cv_folds_present = all(ismember([1, 2, 3], unique(t_cv.fold)));
+            cv_ok = cv_methods_present && cv_folds_present && (n_cv_rows == 15);
+            check('Cross-validation study: results/cv_study.csv contains 15 rows (5 methods x 3 folds)', cv_ok, ...
+                sprintf('%d rows, all 5 methods and 3 folds present', n_cv_rows));
+        else
+            check('Cross-validation study: results/cv_study.csv contains 15 rows (5 methods x 3 folds)', false, 'CSV missing');
+        end
+
         rows(end + 1, :) = {'cross_matrix', 'status', double(cross_exists), n_rows, NaN, NaN}; %#ok<AGROW>
         rows(end + 1, :) = {'tuner_compare', 'status', double(tuner_exists), n_tuner_rows, NaN, NaN}; %#ok<AGROW>
         rows(end + 1, :) = {'tuner_compare_wide', 'status', double(wide_exists), n_wide_rows, NaN, NaN}; %#ok<AGROW>
+        rows(end + 1, :) = {'cv_study', 'status', double(cv_exists), n_cv_rows, NaN, NaN}; %#ok<AGROW>
     end
 
     %% ---- report -------------------------------------------------------------------------------------

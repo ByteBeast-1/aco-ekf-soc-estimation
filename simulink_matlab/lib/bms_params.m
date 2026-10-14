@@ -1,10 +1,14 @@
-function P = bms_params(variant)
+function P = bms_params(variant, tuning)
 %BMS_PARAMS Single source of truth for every cell/filter/sensor parameter.
 %   P = BMS_PARAMS('synthetic')  2-RC cell used by the simulated plant
 %   P = BMS_PARAMS('nasa')       cell calibrated on real NASA data (BMS_NASA_CAL_DATA)
+%   P = BMS_PARAMS('nasa', 'cv_best') uses cross-validation optimal Q and R
 %   Codegen-compatible (no file I/O); safe inside MATLAB Function blocks.
     if nargin < 1
         variant = 'synthetic';
+    end
+    if nargin < 2
+        tuning = 'aco_shipped';
     end
     tuned = bms_tuned_data();
 
@@ -20,7 +24,13 @@ function P = bms_params(variant)
         P.R0 = cal.R0;  P.R1 = cal.R1;  P.R2 = cal.R2;
         P.C1 = cal.C1;  P.C2 = cal.C2;  P.Qn = cal.Qn;
         P.ocv = cal.ocv;
-        P.Q = tuned.nasa.Q;  P.R = tuned.nasa.R;
+        if strcmp(tuning, 'cv_best')
+            % Cross-validation optimal parameters from leave-one-cell-out benchmark (ACO_R_Val_Pick)
+            P.Q = [1.0622e-06; 3.2606e-05; 5.2942e-05];
+            P.R = 2.1843e-03;
+        else
+            P.Q = tuned.nasa.Q;  P.R = tuned.nasa.R;
+        end
         P.P0 = diag([0.0225, 0.0025, 0.0025]);   % 15 % SOC 1-sigma prior
     else
         P.R0 = 0.012;  P.R1 = 0.008;  P.R2 = 0.015;
