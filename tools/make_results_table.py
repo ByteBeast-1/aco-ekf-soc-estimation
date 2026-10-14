@@ -17,6 +17,7 @@ import os
 import sys
 import argparse
 import csv
+import math
 
 
 def load_csv_data(csv_path):
@@ -314,6 +315,74 @@ def format_tuner_table(tuner_rows):
     return "\n".join(lines)
 
 
+def format_wide_table(wide_rows):
+    if not wide_rows:
+        return ""
+    lines = []
+    lines.append("### Table 6: Widened Search Bounds Benchmark (10 Seeds, Widened by 1 Decade on Each Side)")
+    lines.append("")
+    lines.append("> [!NOTE]")
+    lines.append("> **Widened Search Space Specification & Evaluation Setup:**")
+    lines.append("> - Search space widened by 1 decade on each side: $\\log_{10} Q_i \\in [-10, -3]$ (previously $[-9, -4]$) and $\\log_{10} R \\in [-5, 0]$ (previously $[-4, -1]$).")
+    lines.append("> - Evaluated across 10 independent random seeds for ACO_R and Random_Search, and uniform Grid_Search.")
+    lines.append("> - **Per-cell Breakdown:** Evaluated on unseen NASA cells B0005 and B0007 across cycles #1, #60, and #120, reporting fresh (#1) vs aged (#120) performance.")
+    lines.append("> - **Overfitting Diagnostics:** Reports training fitness next to held-out MAE to quantify optimization vs generalization gaps.")
+    lines.append("")
+
+    by_src = {"synthetic": {}, "nasa": {}}
+    for r in wide_rows:
+        src = r.get("source", "")
+        m = r.get("method", "")
+        if src in by_src:
+            if m not in by_src[src]:
+                by_src[src][m] = []
+            by_src[src][m].append(r)
+
+    method_order = [
+        ("ACO_R", "Ant Colony Optimization (ACO_R)"),
+        ("Grid_Search", "Uniform Grid Search"),
+        ("Random_Search", "Random Uniform Search")
+    ]
+
+    lines.append("| Optimization Method | Source | Seeds | Mean Training Cost | Held-Out MAE (%) | Fresh Cells (#1) MAE | Aged Cells (#120) MAE | Bounds Saturation Rate |")
+    lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
+
+    for src in ["synthetic", "nasa"]:
+        src_label = "Synthetic" if src == "synthetic" else "Real NASA"
+        for mid, mlabel in method_order:
+            runs = by_src[src].get(mid, [])
+            if not runs:
+                continue
+            count = len(runs)
+            fits = [float(r["best_training_fitness"]) for r in runs]
+            maes = [float(r["held_out_mae"]) for r in runs]
+            mean_fit = sum(fits) / len(fits)
+            mean_mae = sum(maes) / len(maes)
+
+            if count > 1:
+                std_mae = math.sqrt(sum((x - mean_mae) ** 2 for x in maes) / (count - 1))
+                mae_str = f"{mean_mae:.3f}% ± {std_mae:.3f}% [{min(maes):.3f}%, {max(maes):.3f}%]"
+            else:
+                mae_str = f"{mean_mae:.3f}%"
+
+            fresh_vals = [float(r["mae_fresh"]) for r in runs if r.get("mae_fresh") and r["mae_fresh"] != "NaN"]
+            aged_vals = [float(r["mae_aged"]) for r in runs if r.get("mae_aged") and r["mae_aged"] != "NaN"]
+            fresh_str = f"{sum(fresh_vals)/len(fresh_vals):.2f}%" if fresh_vals else "N/A (model-matched)"
+            aged_str = f"{sum(aged_vals)/len(aged_vals):.2f}%" if aged_vals else "N/A (model-matched)"
+
+            bnd_counts = [float(r["is_at_bound"]) for r in runs if "is_at_bound" in r]
+            if bnd_counts:
+                bnd_pct = (sum(bnd_counts) / (len(bnd_counts) * 4.0)) * 100.0
+                bnd_str = f"{bnd_pct:.1f}% ({int(sum(bnd_counts))}/{len(bnd_counts)*4} params)"
+            else:
+                bnd_str = "0.0%"
+
+            lines.append(f"| **{mlabel}** | {src_label} | {count} | {mean_fit:.2e} | {mae_str} | {fresh_str} | {aged_str} | {bnd_str} |")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def update_readme(readme_path, table_md):
     if not os.path.isfile(readme_path):
         raise FileNotFoundError(f"README not found at: {readme_path}")
@@ -349,6 +418,7 @@ def main():
     parser.add_argument("--csv", default="simulink_matlab/results/bms_regression_results.csv", help="Path to bms_regression_results.csv")
     parser.add_argument("--cross-csv", default="simulink_matlab/results/cross_matrix.csv", help="Path to cross_matrix.csv")
     parser.add_argument("--tuner-csv", default="simulink_matlab/results/tuner_compare.csv", help="Path to tuner_compare.csv")
+    parser.add_argument("--wide-csv", default="simulink_matlab/results/tuner_compare_wide.csv", help="Path to tuner_compare_wide.csv")
     parser.add_argument("--update", default=None, help="Path to README.md to update between marker comments")
     args = parser.parse_args()
 
@@ -366,6 +436,12 @@ def main():
         tuner_table_md = format_tuner_table(tuner_rows)
         if tuner_table_md:
             table_md = table_md + "\n\n---\n\n" + tuner_table_md
+
+    if os.path.isfile(args.wide_csv):
+        wide_rows = load_csv_data(args.wide_csv)
+        wide_table_md = format_wide_table(wide_rows)
+        if wide_table_md:
+            table_md = table_md + "\n\n---\n\n" + wide_table_md
 
     if args.update:
         update_readme(args.update, table_md)

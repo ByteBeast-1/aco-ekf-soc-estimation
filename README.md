@@ -179,6 +179,27 @@ aco-ekf-soc-estimation/
 | **Continuous ACO (ACO_R)** | Stochastic (5 seeds) | 200 | **0.159% ± 0.000% [0.159%, 0.160%]** | 2.714% ± 0.190% [2.382%, 2.834%] | 78.0 s |
 
 
+---
+
+### Table 6: Widened Search Bounds Benchmark (10 Seeds, Widened by 1 Decade on Each Side)
+
+> [!NOTE]
+> **Widened Search Space Specification & Evaluation Setup:**
+> - Search space widened by 1 decade on each side: $\log_{10} Q_i \in [-10, -3]$ (previously $[-9, -4]$) and $\log_{10} R \in [-5, 0]$ (previously $[-4, -1]$).
+> - Evaluated across 10 independent random seeds for ACO_R and Random_Search, and uniform Grid_Search.
+> - **Per-cell Breakdown:** Evaluated on unseen NASA cells B0005 and B0007 across cycles #1, #60, and #120, reporting fresh (#1) vs aged (#120) performance.
+> - **Overfitting Diagnostics:** Reports training fitness next to held-out MAE to quantify optimization vs generalization gaps.
+
+| Optimization Method | Source | Seeds | Mean Training Cost | Held-Out MAE (%) | Fresh Cells (#1) MAE | Aged Cells (#120) MAE | Bounds Saturation Rate |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Ant Colony Optimization (ACO_R)** | Synthetic | 10 | 1.42e-04 | 0.155% ± 0.000% [0.155%, 0.155%] | N/A (model-matched) | N/A (model-matched) | 50.0% (20/40 params) |
+| **Uniform Grid Search** | Synthetic | 1 | 1.42e-04 | 0.156% | N/A (model-matched) | N/A (model-matched) | 75.0% (3/4 params) |
+| **Random Uniform Search** | Synthetic | 10 | 1.42e-04 | 0.158% ± 0.006% [0.153%, 0.173%] | N/A (model-matched) | N/A (model-matched) | 5.0% (2/40 params) |
+| **Ant Colony Optimization (ACO_R)** | Real NASA | 10 | 6.51e-04 | 5.219% ± 4.242% [2.349%, 15.210%] | 4.21% | 4.93% | 30.0% (12/40 params) |
+| **Uniform Grid Search** | Real NASA | 1 | 7.90e-04 | 2.295% | 0.50% | 3.24% | 50.0% (2/4 params) |
+| **Random Uniform Search** | Real NASA | 10 | 8.03e-04 | 4.677% ± 4.181% [1.812%, 15.463%] | 3.87% | 4.50% | 10.0% (4/40 params) |
+
+
 <!-- RESULTS_TABLE_END -->
 
 *(Note: The above tables are automatically populated from `simulink_matlab/results/bms_regression_results.csv` via `python tools/make_results_table.py --update README.md`.)*

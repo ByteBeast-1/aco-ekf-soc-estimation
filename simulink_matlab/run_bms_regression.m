@@ -357,8 +357,32 @@ function ok = run_bms_regression(opts)
             check('Tuner comparison: results/tuner_compare.csv contains all attempted methods', false, 'CSV missing');
         end
 
+        % Check widened tuner study results
+        wide_csv = fullfile(outdir, 'tuner_compare_wide.csv');
+        if ~isfile(wide_csv)
+            bms_tune_study('quick');
+        end
+        wide_exists = isfile(wide_csv);
+        n_wide_rows = 0;
+        if wide_exists
+            t_wide = readtable(wide_csv);
+            n_wide_rows = height(t_wide);
+            expected_wide_methods = {'ACO_R', 'Grid_Search', 'Random_Search'};
+            wide_methods_present = all(ismember(expected_wide_methods, unique(t_wide.method)));
+            has_both_wide_sources = any(strcmp(t_wide.source, 'synthetic')) && any(strcmp(t_wide.source, 'nasa'));
+            has_breakdown_cols = ismember('mae_fresh', t_wide.Properties.VariableNames) && ...
+                                 ismember('mae_aged', t_wide.Properties.VariableNames) && ...
+                                 ismember('mae_B0005_1', t_wide.Properties.VariableNames);
+            wide_ok = wide_methods_present && has_both_wide_sources && has_breakdown_cols && (n_wide_rows >= 6);
+            check('Widened tuner study: results/tuner_compare_wide.csv contains wide-bounds methods and per-cell metrics', wide_ok, ...
+                sprintf('%d rows, fresh/aged breakdown present', n_wide_rows));
+        else
+            check('Widened tuner study: results/tuner_compare_wide.csv contains wide-bounds methods and per-cell metrics', false, 'CSV missing');
+        end
+
         rows(end + 1, :) = {'cross_matrix', 'status', double(cross_exists), n_rows, NaN, NaN}; %#ok<AGROW>
         rows(end + 1, :) = {'tuner_compare', 'status', double(tuner_exists), n_tuner_rows, NaN, NaN}; %#ok<AGROW>
+        rows(end + 1, :) = {'tuner_compare_wide', 'status', double(wide_exists), n_wide_rows, NaN, NaN}; %#ok<AGROW>
     end
 
     %% ---- report -------------------------------------------------------------------------------------
