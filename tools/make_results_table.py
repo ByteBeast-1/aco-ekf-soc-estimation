@@ -131,14 +131,14 @@ def format_cross_table(cross_rows):
     lines.append("> [!NOTE]")
     lines.append("> **Cross-Feeding Methodology & Metric Definitions:**")
     lines.append("> Evaluates all three estimator variants (Baseline EKF, Adaptive EKF (Sage-Husa), and Online Capacity SOH EKF) across simulated plant conditions (known truth, sensor faults, 40-run Monte Carlo ensemble) and real NASA experimental cell replay with and without sensor faults injected (`BMS_InjectFaultsOnReplay = 1`). Metrics exclude the initial 120 s convergence window:")
-    lines.append("> - **Time to $\\le 1\\%$ (stay 60s):** Time in seconds to first enter $|err| \\le 1.0\\%$ and remain $\\le 1.0\\%$ for at least 60 consecutive seconds. Reported as `N/A (>1%)` if never maintained (no looser fallback threshold).")
-    lines.append("> - **Post-120s Err $>1\\%$:** Fraction/percentage of samples strictly after the 120 s convergence window ($t > 120\\text{ s}$) where absolute error exceeds $1.0\\%$.")
+    lines.append("> - **Time to $\\le 1\\%$ (stay 60s) (Baseline EKF):** Time in seconds for Baseline EKF to first enter $|err| \\le 1.0\\%$ and remain $\\le 1.0\\%$ for at least 60 consecutive seconds. Reported as `N/A (>1%)` if never maintained (no looser fallback threshold).")
+    lines.append("> - **Post-120s Err $>1\\%$ (Baseline EKF):** Fraction/percentage of samples strictly after the 120 s convergence window ($t > 120\\text{ s}$) where Baseline EKF absolute error exceeds $1.0\\%$.")
     lines.append("> - **Fault Diagnostics:** Evaluates per-spike detection for periodic glitches (spikes occur every 25 samples between $t = 899\\text{ s}$ and $1199\\text{ s}$, 13 spikes total) reporting fraction of spikes flagged and first-flag delay after the first spike.")
     lines.append("")
     lines.append("> [!IMPORTANT]")
     lines.append("> **Summary:** Baseline EKF is best on healthy cells, Capacity SOH EKF is best on the aged cell, and Adaptive EKF (Sage-Husa) shows no clear gain.")
     lines.append("")
-    lines.append("| Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity SOH EKF MAE | Worst Max Err | Time to $\\le 1\\%$ (stay 60s) | Post-120s Err $>1\\%$ | Fault Diagnostics |")
+    lines.append("| Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity SOH EKF MAE | Worst Max Err | Time to $\\le 1\\%$ (stay 60s) (Baseline EKF) | Post-120s Err $>1\\%$ (Baseline EKF) | Fault Diagnostics |")
     lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
 
     scenarios = []
