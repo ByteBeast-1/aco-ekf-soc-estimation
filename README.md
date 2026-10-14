@@ -126,6 +126,29 @@ aco-ekf-soc-estimation/
 > [!NOTE]
 > **Convergence Window Exclusion:** All error metrics (MAE and max error) in the tables above exclude the initial 120 s convergence window (`skip = 120 s` in `simulink_matlab/run_bms_regression.m`), evaluating steady-state performance once initial offsets have settled.
 
+---
+
+### Table 4: Cross-Feeding Estimator Matrix (Simulated Plant vs. Real NASA Replay with Faults)
+
+> [!NOTE]
+> **Cross-Feeding Methodology:** Evaluates all three estimator variants (Baseline EKF, SOTA Adaptive EKF, and Online Capacity SOH EKF) across both simulated plant conditions (known truth, sensor faults, Monte Carlo initial error) and real NASA experimental cell replay with and without sensor faults injected (`BMS_InjectFaultsOnReplay = 1`). Metrics exclude the initial 120 s convergence window.
+
+| Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity SOH EKF MAE | Worst-Case Max Error | Fault Latency |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **sim_clean_udds** | `synthetic` | Mode 0 | 0.163% | 0.166% | 0.287% | 0.73% | None |
+| **sim_pulse** | `synthetic` | Mode 0 | 0.112% | 0.114% | 0.275% | 0.70% | None |
+| **sim_fault1_I_offset** | `synthetic` | Mode 1 | 0.387% | 0.364% | 0.203% | 0.74% | Unflagged |
+| **sim_fault2_V_spike** | `synthetic` | Mode 2 | 0.162% | 0.166% | 0.286% | 0.73% | **24 s** |
+| **sim_fault3_T_open** | `synthetic` | Mode 3 | 0.160% | 0.163% | 0.281% | 0.73% | **0 s** |
+| **sim_monte_carlo_42** | `synthetic` | Mode 0 | 0.191% | 0.183% | 0.334% | 0.94% | None |
+| **nasa_B0005_clean** | `nasa` | Mode 0 | 0.664% | 0.721% | 1.162% | 2.87% | None |
+| **nasa_B0005_fault1** | `nasa` | Mode 1 | 0.644% | 0.771% | 1.270% | 2.91% | Unflagged |
+| **nasa_B0005_fault2** | `nasa` | Mode 2 | 0.664% | 0.721% | 1.162% | 2.87% | **24 s** |
+| **nasa_B0005_fault3** | `nasa` | Mode 3 | 0.669% | 0.722% | 1.137% | 2.85% | **0 s** |
+| **nasa_B0007_clean** | `nasa` | Mode 0 | 0.929% | 1.110% | 1.693% | 4.34% | None |
+| **nasa_B0005_aged_120** | `nasa` | Mode 0 | 4.893% | 4.714% | 3.089% | 9.44% | None |
+
+
 <!-- RESULTS_TABLE_END -->
 
 *(Note: The above tables are automatically populated from `simulink_matlab/results/bms_regression_results.csv` via `python tools/make_results_table.py --update README.md`.)*

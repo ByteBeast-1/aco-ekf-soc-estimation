@@ -151,6 +151,49 @@ When processed and exported by [`run_all.m`](../simulink_matlab/run_all.m), `Tim
 
 ---
 
+## 🔬 Cross-Feeding Performance Evaluation (`bms_cross_matrix.m`)
+
+To rigorously benchmark estimator resilience across both known physics and physical experimental data, [`bms_cross_matrix.m`](../simulink_matlab/bms_cross_matrix.m) executes a cross-feeding test matrix evaluating all three estimator variants:
+- **Baseline EKF (Mode 0):** Conventional Joseph-form EKF with static ACO-tuned covariances.
+- **Adaptive EKF (Mode 2):** SOTA dynamic measurement noise covariance ($R_k$) adaptation via Sage-Husa.
+- **Capacity SOH EKF (Mode 10):** Dual-state joint SOC and capacity-ratio tracking.
+
+### Evaluated Scenario Regimes:
+1. **Simulated Plant Truth (`BMS_Source == 1`):** Nominal UDDS, dynamic pulses, sensor faults (current offset, voltage spikes, thermistor disconnect), and Monte Carlo initial error ($\pm 20\%$).
+2. **NASA Laboratory Replay (`BMS_Source == 2`):** Fresh cells (B0005, B0007), heavily aged cells (120 cycles), and fault-injected replay via `BMS_InjectFaultsOnReplay = 1`.
+
+### Metrics Tracked per Cell:
+- **`MAE (%)` & `RMSE (%)`:** Steady-state tracking accuracy excluding the 120 s convergence window.
+- **`P95 (%)` & `Max Error (%)`:** Bounded worst-case error under dynamic excitation and sensor noise.
+- **`Convergence Time (s)`:** Measured settling time from $t=0$ until the absolute error permanently settles within $\le 1.0\%$.
+- **`Fault Detection Latency (s)`:** Delay in seconds from fault injection onset ($t=900\text{ s}$) to the first active diagnostic bitmask flag (`FaultCode > 0`).
+
+Outputs are saved to `results/cross_matrix.csv` and visualized in `results/fig_cross_matrix.png` and `figures/17_simulink_cross_matrix.png`.
+
+---
+
+## 🚀 Unified Single Entry Point Pipeline (`run_everything.m`)
+
+[`run_everything.m`](../simulink_matlab/run_everything.m) provides a single automated entry point that executes the entire Model-Based Design lifecycle from scratch:
+
+```mermaid
+graph TD
+    S1["1. build_bms_models<br/>(Programmatic model & dictionary generation)"]
+    S2["2. run_bms_regression<br/>(45 automated checks across Suites 0-9)"]
+    S3["3. run_all<br/>(Batch scenario sweeps & time-series CSV/PNG export)"]
+    S4["4. bms_cross_matrix<br/>(12-scenario cross-feeding matrix & figures)"]
+    S5["5. make_results_table.py<br/>(Automated README results table update)"]
+
+    S1 --> S2 --> S3 --> S4 --> S5
+```
+
+- **Fail-Fast CI Contract:** Throws an explicit error and exits with a non-zero exit code if any model build, regression assertion, or export step fails.
+- **Dual Execution Modes:**
+  - `run_everything('quick')`: Runs rapid verification pipeline (~100 seconds).
+  - `run_everything('full')` or `run_everything`: Executes full scenario sweeps, 40-run Monte Carlo, and full 12-scenario cross-feeding matrix.
+
+---
+
 ## 🔒 3-Subsystem Layout Rationale
 
 1. **`Battery_Physics_Plant`**: Isolates physical chemical and thermal equations from control logic.

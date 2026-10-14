@@ -287,6 +287,56 @@ function ok = run_bms_regression(opts)
         rows(end + 1, :) = {'unified_eq', 'synthetic_ekf', e_syn_ekf, e_syn_plt, NaN, NaN}; %#ok<AGROW>
         rows(end + 1, :) = {'unified_eq', 'nasa_replay', e_nasa_ekf, e_nasa_ada, e_nasa_cap, NaN}; %#ok<AGROW>
         rows(end + 1, :) = {'unified_eq', 'switch_nonvacuous', double(tag_sim_ok), double(tag_rep_ok), soc_diff, NaN}; %#ok<AGROW>
+
+        %% ---- 9. Cross-feeding test matrix and single entry point ------------------------------------
+        fprintf('\n== 9. Cross-feeding test matrix & single entry point ==\n');
+        cross_csv = fullfile(outdir, 'cross_matrix.csv');
+        if ~isfile(cross_csv)
+            bms_cross_matrix('quick');
+        end
+        cross_exists = isfile(cross_csv);
+        check('Cross-matrix: results/cross_matrix.csv exists and is populated', cross_exists, sprintf('file present: %d', cross_exists));
+
+        n_rows = 0;
+        if cross_exists
+            t_cross = readtable(cross_csv);
+            n_rows = height(t_cross);
+            has_estimators = any(strcmp(t_cross.estimator, 'Baseline_EKF')) && ...
+                             any(strcmp(t_cross.estimator, 'Adaptive_EKF')) && ...
+                             any(strcmp(t_cross.estimator, 'Capacity_SOH_EKF'));
+            check('Cross-matrix: all 3 estimators evaluated across scenarios', has_estimators && n_rows >= 12, ...
+                sprintf('%d rows, 3 estimators', n_rows));
+
+            % Check adaptive EKF steady-state error bounded on synthetic
+            syn_mask = strcmp(t_cross.source, 'synthetic') & strcmp(t_cross.estimator, 'Adaptive_EKF');
+            mean_syn_mae = mean(t_cross.mae_pct(syn_mask));
+            check('Cross-matrix: adaptive EKF mean MAE bounded on synthetic plant', mean_syn_mae < 1.0, ...
+                sprintf('mean MAE %.3f %% < 1.0', mean_syn_mae));
+
+            % Check fault detection latency on NASA replay
+            rep_f2_mask = strcmp(t_cross.source, 'nasa') & (t_cross.fault_mode == 2);
+            f2_lats = t_cross.fault_latency_s(rep_f2_mask);
+            f2_lat_ok = ~isempty(f2_lats) && ~isnan(f2_lats(1)) && (f2_lats(1) <= 30);
+            check('Cross-matrix: NASA replay fault detection latency is bounded', f2_lat_ok, ...
+                sprintf('latency %.0f s <= 30', f2_lats(1)));
+
+            % Check capacity EKF performance on NASA data
+            cap_mask = strcmp(t_cross.estimator, 'Capacity_SOH_EKF') & strcmp(t_cross.source, 'nasa');
+            cap_mae_ok = mean(t_cross.mae_pct(cap_mask)) < 4.0;
+            check('Cross-matrix: capacity SOH EKF bounded error on NASA data', cap_mae_ok, ...
+                sprintf('mean MAE %.3f %% < 4.0', mean(t_cross.mae_pct(cap_mask))));
+        else
+            check('Cross-matrix: all 3 estimators evaluated across scenarios', false, 'CSV missing');
+            check('Cross-matrix: adaptive EKF mean MAE bounded on synthetic plant', false, 'CSV missing');
+            check('Cross-matrix: NASA replay fault detection latency is bounded', false, 'CSV missing');
+            check('Cross-matrix: capacity SOH EKF bounded error on NASA data', false, 'CSV missing');
+        end
+
+        % Check single entry point script exists and is callable
+        single_entry_ok = (exist('run_everything', 'file') == 2);
+        check('Single entry point: run_everything.m exists and is callable', single_entry_ok, 'run_everything.m verified');
+
+        rows(end + 1, :) = {'cross_matrix', 'status', double(cross_exists), n_rows, NaN, NaN}; %#ok<AGROW>
     end
 
     %% ---- report -------------------------------------------------------------------------------------

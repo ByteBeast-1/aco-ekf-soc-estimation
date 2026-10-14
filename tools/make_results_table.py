@@ -122,6 +122,58 @@ def format_tables(rows):
     return "\n".join(lines)
 
 
+def format_cross_table(cross_rows):
+    if not cross_rows:
+        return ""
+    lines = []
+    lines.append("### Table 4: Cross-Feeding Estimator Matrix (Simulated Plant vs. Real NASA Replay with Faults)")
+    lines.append("")
+    lines.append("> [!NOTE]")
+    lines.append("> **Cross-Feeding Methodology:** Evaluates all three estimator variants (Baseline EKF, SOTA Adaptive EKF, and Online Capacity SOH EKF) across both simulated plant conditions (known truth, sensor faults, Monte Carlo initial error) and real NASA experimental cell replay with and without sensor faults injected (`BMS_InjectFaultsOnReplay = 1`). Metrics exclude the initial 120 s convergence window.")
+    lines.append("")
+    lines.append("| Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity SOH EKF MAE | Worst-Case Max Error | Fault Latency |")
+    lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
+
+    scenarios = []
+    by_sc = {}
+    for r in cross_rows:
+        sc = r["scenario"]
+        if sc not in by_sc:
+            scenarios.append(sc)
+            by_sc[sc] = {}
+        by_sc[sc][r["estimator"]] = r
+
+    for sc in scenarios:
+        r_base = by_sc[sc].get("Baseline_EKF", {})
+        r_adap = by_sc[sc].get("Adaptive_EKF", {})
+        r_cap  = by_sc[sc].get("Capacity_SOH_EKF", {})
+
+        src = r_base.get("source", "sim")
+        fmode = r_base.get("fault_mode", "0")
+        mae_b = f"{float(r_base['mae_pct']):.3f}%" if "mae_pct" in r_base else "N/A"
+        mae_a = f"{float(r_adap['mae_pct']):.3f}%" if "mae_pct" in r_adap else "N/A"
+        mae_c = f"{float(r_cap['mae_pct']):.3f}%"  if "mae_pct" in r_cap else "N/A"
+
+        all_max = []
+        for r_x in [r_base, r_adap, r_cap]:
+            if "max_err_pct" in r_x:
+                all_max.append(float(r_x["max_err_pct"]))
+        max_str = f"{max(all_max):.2f}%" if all_max else "N/A"
+
+        lat_val = r_base.get("fault_latency_s", "")
+        if lat_val and lat_val.lower() != "nan":
+            lat_str = f"**{float(lat_val):.0f} s**"
+        elif int(float(fmode)) > 0:
+            lat_str = "Unflagged"
+        else:
+            lat_str = "None"
+
+        lines.append(f"| **{sc}** | `{src}` | Mode {fmode} | {mae_b} | {mae_a} | {mae_c} | {max_str} | {lat_str} |")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def update_readme(readme_path, table_md):
     if not os.path.isfile(readme_path):
         raise FileNotFoundError(f"README not found at: {readme_path}")
@@ -155,11 +207,18 @@ def update_readme(readme_path, table_md):
 def main():
     parser = argparse.ArgumentParser(description="Generate markdown results tables from regression CSV.")
     parser.add_argument("--csv", default="simulink_matlab/results/bms_regression_results.csv", help="Path to bms_regression_results.csv")
+    parser.add_argument("--cross-csv", default="simulink_matlab/results/cross_matrix.csv", help="Path to cross_matrix.csv")
     parser.add_argument("--update", default=None, help="Path to README.md to update between marker comments")
     args = parser.parse_args()
 
     rows = load_csv_data(args.csv)
     table_md = format_tables(rows)
+
+    if os.path.isfile(args.cross_csv):
+        cross_rows = load_csv_data(args.cross_csv)
+        cross_table_md = format_cross_table(cross_rows)
+        if cross_table_md:
+            table_md = table_md + "\n\n---\n\n" + cross_table_md
 
     if args.update:
         update_readme(args.update, table_md)
@@ -169,3 +228,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

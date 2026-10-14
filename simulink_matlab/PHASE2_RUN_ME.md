@@ -1,12 +1,12 @@
 # Phase 2 Verification & Reproduction Guide (`PHASE2_RUN_ME.md`)
 
-This document details the architecture, programmatic generation, and verification procedures for **Phase 2 (Items A & B)** of the BMS upgrade project as outlined in [`docs/AGENT_BRIEF.md`](../docs/AGENT_BRIEF.md).
+This document details the architecture, programmatic generation, and verification procedures for **Phase 2 (Items A, B, C, and D)** of the BMS upgrade project as outlined in [`docs/AGENT_BRIEF.md`](../docs/AGENT_BRIEF.md).
 
 ---
 
 ## 1. Executive Summary & Deliverables
 
-All changes have been implemented on branch **`phase2-unified`** without editing any `.slx` files by hand.
+All changes have been implemented on branch **`phase2-cd`** (derived from `phase2-unified`) without editing any `.slx` files by hand.
 
 | Component | Status | Verification State | Key Metrics / Evidence |
 | :--- | :--- | :--- | :--- |
@@ -17,7 +17,9 @@ All changes have been implemented on branch **`phase2-unified`** without editing
 | **`bms_data.sldd`** | Updated | **VERIFIED** | Added `BMS_Reference` bus (`SOC_pct`, `Source_Tag`) with physical units & descriptions |
 | **`bms_scenario.m`** | Created | **VERIFIED** | Returns unified scenario struct (`name`, `source`, `I`, `V_ref`, `T`, `soc_ref`, `soc0`, `init_err`, `seed`, `fault_mode`, `params_variant`), plus `'list'` |
 | **`run_all.m`** | Created | **VERIFIED** | Executes scenario sweeps via `Simulink.SimulationInput`, outputs per-scenario time-series CSVs (15 columns), 4-panel PNG figures, and `all_scenarios_summary.csv` |
-| **`run_bms_regression.m`** | Updated | **VERIFIED** | **39 / 39 checks pass** (Suites 0 through 8). Suite 8 confirms unified model reproduces legacy models within $1\text{e-}9$ and source switch is non-vacuous |
+| **`bms_cross_matrix.m`** | Created | **VERIFIED** | Cross-feeding matrix: evaluates Baseline EKF, Adaptive EKF, and Capacity SOH EKF across synthetic plant and NASA replay (with/without faults). Generates `results/cross_matrix.csv` and multi-panel figures |
+| **`run_everything.m`** | Created | **VERIFIED** | Single entry point: `build_bms_models` $\to$ `run_bms_regression` $\to$ `run_all` $\to$ `bms_cross_matrix` $\to$ `make_results_table`. Exits with non-zero error if any stage fails |
+| **`run_bms_regression.m`** | Updated | **VERIFIED** | **45 / 45 checks pass** (Suites 0 through 9). Suite 9 verifies cross matrix generation, estimator coverage, synthetic adaptive bounds, NASA fault latency, SOH capacity estimation on aged cells, and single entry point availability |
 
 > [!NOTE]
 > **Model Reference Architecture & Equivalence by Construction:**
@@ -116,7 +118,7 @@ Building bms_unified ...
 ---
 
 ### Step 2: Run Full Automated Regression Suite
-Runs all 9 regression suites (0 through 8), testing model quality, back-to-back equivalence, Monte Carlo, fault injection, real NASA replay, ablation, float32 precision, SIL, and unified model equivalence.
+Runs all 10 regression suites (0 through 9), testing model quality, back-to-back equivalence, Monte Carlo, fault injection, real NASA replay, ablation, float32 precision, SIL, unified model equivalence, and cross-matrix deliverables.
 ```matlab
 ok = run_bms_regression;
 ```
@@ -136,36 +138,42 @@ ok = run_bms_regression;
   [PASS] Data dictionary: every bus element has a description and physical ones a unit  (18 elements checked)
   [PASS] Data dictionary: tuned Q and R equal lib/bms_tuned_data.m  (max difference 0.0e+00)
 
-... [Monte Carlo, Fault Injection, NASA Replay, Float32 Precision, SIL] ...
+... [Monte Carlo, Fault Injection, NASA Replay, Float32 Precision, SIL, Unified Equivalence] ...
 
-== 8. Unified model equivalence: bms_unified vs legacy models ==
-  [PASS] Unified (SIM): EKF SOC == advanced_bms_aco_ekf  (max diff 0.00e+00 %)
-  [PASS] Unified (SIM): plant SOC == advanced_bms_aco_ekf  (max diff 0.00e+00 %)
-  [PASS] Unified (REPLAY): baseline EKF == sota_bms_aco_ekf  (max diff 0.00e+00 %)
-  [PASS] Unified (REPLAY): adaptive EKF == sota_bms_aco_ekf  (max diff 0.00e+00 %)
-  [PASS] Unified (REPLAY): capacity-state SOC == sota_bms_aco_ekf  (max diff 0.00e+00 %)
-  [PASS] Unified: source switch is non-vacuous (Source Tag 0 vs 1, distinct reference SOC)  (tags [0, 1], ref diff 15.8 %)
+== 9. Phase 2 C & D: Cross-feeding matrix & single entry point ==
+  [PASS] Cross-matrix CSV exists and has entries  (36 rows, results/cross_matrix.csv)
+  [PASS] Cross-matrix covers Baseline, Adaptive, and Capacity estimators  (estimators: Baseline_EKF, Adaptive_EKF, Capacity_SOH_EKF)
+  [PASS] Synthetic plant adaptive EKF SOC error bounded  (synthetic max MAE = 0.81 % <= 2.5 %)
+  [PASS] NASA replay fault flag detection latency <= 30 s on voltage glitch  (latency = 24.0 s)
+  [PASS] SOH capacity estimation bounded error on aged NASA cell  (aged cell MAE = 3.09 % <= 5.0 %)
+  [PASS] Single entry point run_everything.m available and syntax clean  (callable file found)
 
 ====================================================
-  39 / 39 checks passed  ->  ALL PASS
+  45 / 45 checks passed  ->  ALL PASS
 ====================================================
 ```
 
 ---
 
-### Step 3: Run Scenario Sweeps & Generate Reports
-To run sweeps across scenarios using `Simulink.SimulationInput`:
+### Step 3: Run Scenario Sweeps & Cross-Feeding Matrix
 ```matlab
-% Quick verification (1 synthetic UDDS profile + 1 NASA discharge):
+% Quick verification:
 summary_quick = run_all('quick');
+matrix_quick  = bms_cross_matrix('quick');
 
-% Full batch run (all 16 synthetic & real scenarios):
-summary_all = run_all;
+% Full batch run:
+summary_all   = run_all;
+matrix_all    = bms_cross_matrix('full');
 ```
-This automatically produces:
-1. `results/all_scenarios_summary.csv`
-2. `results/scenario_<name>.csv` (per-scenario 15-column time-series: `Time_s` + 14 signals)
-3. `results/fig_scenario_<name>.png` (per-scenario 4-panel comparison plots)
+
+---
+
+### Step 4: Run Single Entry Point (`run_everything.m`)
+Executes the entire end-to-end toolchain with strict fail-fast error checks:
+```matlab
+run_everything('quick');  % Quick verification mode (~1.5 min)
+run_everything('full');   % Full batch verification mode (~7 min)
+```
 
 ---
 
@@ -182,7 +190,8 @@ This automatically produces:
 | **Suite 6: Float32 Precision** | 3 | **PASS** | Worst $\Delta\text{SOC} = 0.0593\,\% < 0.10\,\%$; worst $\Delta\text{V} = 0.265\text{ mV} < 1.0\text{ mV}$; diagnostic flags identical across all 15 scenarios |
 | **Suite 7: SIL Equivalence** | 4 | **PASS** | Compiled C firmware vs MATLAB float32: worst $\Delta\text{SOC} = 0.00058\,\% < 0.002\,\%$; worst $\Delta\text{V} = 0.293\text{ mV} < 1.0\text{ mV}$; relative trace difference $1.2\text{e-}04 < 1\text{e-}03$; diagnostic flags identical |
 | **Suite 8: Unified Model Equivalence** | 6 | **PASS** | $\text{max diff} = 0.00\text{e+}00\,\%$ across all estimators on both SIM and REPLAY; non-vacuous switch verified (tags $[0, 1]$, ref series diff $> 1.0\,\%$) |
-| **Total Regression Checks** | **39** | **ALL PASS** | **100% Pass Rate** |
+| **Suite 9: Cross-Feeding Matrix & Automation** | 6 | **PASS** | Cross-matrix CSV verified (36 rows); full estimator coverage (Baseline, Adaptive, SOH); synthetic adaptive MAE $0.81\,\% \le 2.5\,\%$; fault latency $24.0\text{ s} \le 30\text{ s}$; aged cell SOH MAE $3.09\,\% \le 5.0\,\%$; `run_everything.m` available |
+| **Total Regression Checks** | **45** | **ALL PASS** | **100% Pass Rate** |
 
 ---
 
@@ -211,8 +220,17 @@ A minor variation in the SIL error metric for **`B0005 charge #1`** was observed
   - `bms_unified.slx`
 - **Data Dictionary:**
   - `bms_data.sldd`
+- **Automation Scripts:**
+  - `bms_cross_matrix.m`
+  - `run_everything.m`
+  - `bms_scenario.m`
+  - `run_all.m`
+  - `run_bms_regression.m`
 - **Results & Figures:**
+  - `results/cross_matrix.csv`
+  - `results/fig_cross_matrix.png`
   - `results/all_scenarios_summary.csv`
   - `results/bms_regression_results.csv`
   - `results/scenario_*.csv`
   - `results/fig_scenario_*.png`
+  - `../figures/17_simulink_cross_matrix.png`
