@@ -7,7 +7,7 @@ function st = bms_est_init(P, soc_guess, Qd, R, mode)
     end
     p44 = 0.0;  q44 = 0.0;
     if bitand(mode, 8) > 0
-        p44 = P.cap_P0;  q44 = P.cap_Q;
+        p44 = 0.0;  q44 = P.cap_Q;
     end
     st.x       = [soc_guess; 0.0; 0.0; 1.0];
     st.Pc      = [P.P0, zeros(3, 1); zeros(1, 3), p44];
@@ -22,4 +22,7 @@ function st = bms_est_init(P, soc_guess, Qd, R, mode)
     st.nis_avg   = 1.0;
     st.innov_avg = 0.0;
     st.ibias_cnt = 0.0;
+    st.cap_active   = 0.0;
+    st.cap_r_smooth = 0.0;
+    st.cap_ev_cnt   = 0.0;
 end

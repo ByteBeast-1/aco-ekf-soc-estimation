@@ -142,18 +142,18 @@ aco-ekf-soc-estimation/
 
 | Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity SOH EKF MAE | Worst Max Err | Time to $\le 1\%$ (stay 60s) (Baseline EKF) | Post-120s Err $>1\%$ (Baseline EKF) | Fault Diagnostics |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **sim_clean_udds** | `synthetic` | Mode 0 | 0.163% | 0.166% | 0.287% | 0.73% | 2 s | 0.0% | None |
-| **sim_pulse** | `synthetic` | Mode 0 | 0.112% | 0.114% | 0.275% | 0.70% | 2 s | 0.0% | None |
-| **sim_fault1_I_offset** | `synthetic` | Mode 1 | 0.387% | 0.364% | 0.203% | 0.74% | 2 s | 0.0% | Unflagged |
-| **sim_fault2_V_spike** | `synthetic` | Mode 2 | 0.162% | 0.166% | 0.286% | 0.73% | 2 s | 0.0% | **100% spikes (delay 0s)** |
-| **sim_fault3_T_open** | `synthetic` | Mode 3 | 0.160% | 0.163% | 0.281% | 0.73% | 2 s | 0.0% | **Instant (delay 0s)** |
-| **sim_monte_carlo** | `synthetic` | Mode 0 | 0.169% | 0.180% | 0.304% | 1.16% | 24 s | 0.0% | None |
-| **nasa_B0005_clean** | `nasa` | Mode 0 | 0.664% | 0.721% | 1.162% | 2.87% | 689 s | 17.7% | None |
-| **nasa_B0005_fault1** | `nasa` | Mode 1 | 0.644% | 0.771% | 1.270% | 2.91% | 689 s | 20.8% | Unflagged |
-| **nasa_B0005_fault2** | `nasa` | Mode 2 | 0.664% | 0.721% | 1.162% | 2.87% | 689 s | 17.7% | **100% spikes (delay 0s)** |
-| **nasa_B0005_fault3** | `nasa` | Mode 3 | 0.669% | 0.722% | 1.137% | 2.85% | 689 s | 17.7% | **Instant (delay 0s)** |
-| **nasa_B0007_clean** | `nasa` | Mode 0 | 0.929% | 1.110% | 1.693% | 4.34% | 460 s | 26.1% | None |
-| **nasa_B0005_aged_120** | `nasa` | Mode 0 | 4.893% | 4.714% | 3.089% | 9.44% | 282 s | 85.2% | None |
+| **sim_clean_udds** | `synthetic` | Mode 0 | 0.163% | 0.166% | 0.163% | 0.71% | 2 s | 0.0% | None |
+| **sim_pulse** | `synthetic` | Mode 0 | 0.112% | 0.114% | 0.112% | 0.70% | 2 s | 0.0% | None |
+| **sim_fault1_I_offset** | `synthetic` | Mode 1 | 0.387% | 0.364% | 0.387% | 0.74% | 2 s | 0.0% | Unflagged |
+| **sim_fault2_V_spike** | `synthetic` | Mode 2 | 0.162% | 0.166% | 0.162% | 0.71% | 2 s | 0.0% | **100% spikes (delay 0s)** |
+| **sim_fault3_T_open** | `synthetic` | Mode 3 | 0.160% | 0.163% | 0.160% | 0.71% | 2 s | 0.0% | **Instant (delay 0s)** |
+| **sim_monte_carlo** | `synthetic` | Mode 0 | 0.169% | 0.180% | 0.169% | 1.16% | 24 s | 0.0% | None |
+| **nasa_B0005_clean** | `nasa` | Mode 0 | 0.664% | 0.721% | 0.664% | 2.49% | 689 s | 17.7% | None |
+| **nasa_B0005_fault1** | `nasa` | Mode 1 | 0.644% | 0.771% | 0.644% | 2.49% | 689 s | 20.8% | Unflagged |
+| **nasa_B0005_fault2** | `nasa` | Mode 2 | 0.664% | 0.721% | 0.664% | 2.49% | 689 s | 17.7% | **100% spikes (delay 0s)** |
+| **nasa_B0005_fault3** | `nasa` | Mode 3 | 0.669% | 0.722% | 0.669% | 2.49% | 689 s | 17.7% | **Instant (delay 0s)** |
+| **nasa_B0007_clean** | `nasa` | Mode 0 | 0.929% | 1.110% | 0.929% | 2.57% | 460 s | 26.1% | None |
+| **nasa_B0005_aged_120** | `nasa` | Mode 0 | 4.893% | 4.714% | 3.046% | 9.44% | 282 s | 85.2% | None |
 
 
 ---
