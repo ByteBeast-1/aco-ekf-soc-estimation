@@ -165,9 +165,9 @@ function build_synthetic(here)
     TR = {'SOC_pct', 'Voltage_V', 'Temperature_K'};
     MS = {'Voltage_V'};
     ES = {'SOC_pct', 'SOC_Coulomb_pct', 'Voltage_V', 'Innovation_V', 'PTrace', 'NIS', 'FaultCode'};
-    bsel(m, 'BS_Estimate', 'ACO_EKF_Controller/1',    ES, [1060  80 1065 380]);
-    bsel(m, 'BS_Truth',    'Battery_Physics_Plant/1', TR, [1060 440 1065 570]);
-    bsel(m, 'BS_Measured', 'Sensor_Measurement/1',    MS, [1060 620 1065 670]);
+    bsel(m, 'BS_Estimate', 'ACO_EKF_Controller/1',    ES, [1060  80 1065 420]);
+    bsel(m, 'BS_Truth',    'Battery_Physics_Plant/1', TR, [1060 460 1065 600]);
+    bsel(m, 'BS_Measured', 'Sensor_Measurement/1',    MS, [1060 640 1065 680]);
     t  = @(s) sig('BS_Truth', TR, s);
     me = @(s) sig('BS_Measured', MS, s);
     e  = @(s) sig('BS_Estimate', ES, s);
@@ -176,23 +176,23 @@ function build_synthetic(here)
     x0 = 1260;
     mux_scope(m, 'SOC_Comparison_Scope', {t('SOC_pct'), e('SOC_pct'), e('SOC_Coulomb_pct')}, ...
         [x0 50], 'True SOC | EKF SOC | Coulomb counting');
-    sub_scope(m, 'SOC_Error_Scope', e('SOC_pct'), t('SOC_pct'), [x0 140], 'EKF - True [%]');
+    sub_scope(m, 'SOC_Error_Scope', e('SOC_pct'), t('SOC_pct'), [x0 145], 'EKF - True [%]');
     mux_scope(m, 'Voltage_Tracking_Scope', {t('Voltage_V'), me('Voltage_V'), e('Voltage_V')}, ...
-        [x0 230], 'True V | Measured V | EKF predicted V');
-    scope(m, 'EKF_Covariance_Scope', e('PTrace'), [x0 320], 'trace(P)');
-    scope(m, 'Innovation_NIS_Scope', e('NIS'), [x0 400], 'Normalised innovation squared (expect ~1)');
-    scope(m, 'Diagnostic_Fault_Code_Scope', e('FaultCode'), [x0 480], ...
+        [x0 240], 'True V | Measured V | EKF predicted V');
+    scope(m, 'EKF_Covariance_Scope', e('PTrace'), [x0 335], 'trace(P)');
+    scope(m, 'Innovation_NIS_Scope', e('NIS'), [x0 430], 'Normalised innovation squared (expect ~1)');
+    scope(m, 'Diagnostic_Fault_Code_Scope', e('FaultCode'), [x0 525], ...
         '1 V range | 2 T range | 4 I range | 8 innovation rejected | 16 filter inconsistent');
-    scope(m, 'Drive_Current_Scope', 'Drive_Cycle_Current/1', [x0 560], 'Current [A]');
-    scope(m, 'Temperature_Scope', t('Temperature_K'), [x0 640], 'Cell temperature [K]');
+    scope(m, 'Drive_Current_Scope', 'Drive_Cycle_Current/1', [x0 620], 'Current [A]');
+    scope(m, 'Temperature_Scope', t('Temperature_K'), [x0 715], 'Cell temperature [K]');
 
-    add_block('simulink/Sinks/Display', [m '/Live_SOC_Display'], 'Position', [x0 + 80 45 x0 + 170 80]);
+    add_block('simulink/Sinks/Display', [m '/Live_SOC_Display'], 'Position', [x0 + 100 45 x0 + 190 80]);
     ln(m, e('SOC_pct'), 'Live_SOC_Display/1');
 
-    % --- machine-readable log ----------------------------------------------
+    % --- machine-readable log in clean open corridor -----------------------
     names = {t('SOC_pct'), e('SOC_pct'), e('SOC_Coulomb_pct'), t('Voltage_V'), me('Voltage_V'), e('Voltage_V'), ...
              e('Innovation_V'), e('PTrace'), e('NIS'), e('FaultCode'), t('Temperature_K')};
-    logger(m, names, [x0 730]);
+    logger(m, names, [1140 780]);
 
     note(m, sprintf(['Advanced BMS: 2-RC thermal plant -> noisy/faultable sensors -> referenced Joseph EKF.\n' ...
                      'Algorithms: lib/bms_*.m. Signal interfaces: bus objects in bms_data.sldd.\n' ...
@@ -253,34 +253,35 @@ function build_nasa(here)
     EK = {'SOC_pct', 'SOC_Coulomb_pct'};
     SA = {'SOC_pct', 'Voltage_V', 'Innovation_V', 'NIS', 'FaultCode', 'R0_Ohm', 'R_cov_V2'};
     SH = {'SOC_pct', 'CapacityRatio'};
-    bsel(m, 'BS_Baseline', 'EKF_Baseline/1',             EK, [670 180 675 250]);
-    bsel(m, 'BS_Adaptive', 'SOTA_Adaptive_Controller/1', SA, [670 410 675 580]);
-    bsel(m, 'BS_Capacity', 'SOH_Capacity_Estimator/1',   SH, [670 700 675 770]);
+    bsel(m, 'BS_Baseline', 'EKF_Baseline/1',             EK, [670 160 675 240]);
+    bsel(m, 'BS_Adaptive', 'SOTA_Adaptive_Controller/1', SA, [670 300 675 620]);
+    bsel(m, 'BS_Capacity', 'SOH_Capacity_Estimator/1',   SH, [670 680 675 760]);
     eb = @(s) sig('BS_Baseline', EK, s);
     ea = @(s) sig('BS_Adaptive', SA, s);
     es = @(s) sig('BS_Capacity', SH, s);
 
-    % --- scopes ------------------------------------------------------------
-    x0 = 940;
+    % --- scopes ordered to match signal output ports -----------------------
+    x0 = 960;
     mux_scope(m, 'SOC_Comparison_Scope', {'Ref_SOC_Percent/1', eb('SOC_pct'), ea('SOC_pct'), eb('SOC_Coulomb_pct'), es('SOC_pct')}, ...
-        [x0 60], 'Reference SOC | EKF | Adaptive EKF | Coulomb counting | EKF+capacity state');
-    mux_sub(m, 'SOC_Error_Scope', {eb('SOC_pct'), ea('SOC_pct'), es('SOC_pct')}, 'Ref_SOC_Percent/1', [x0 160], ...
-        'EKF error | Adaptive EKF error | EKF+capacity error  [%]');
+        [x0 50], 'Reference SOC | EKF | Adaptive EKF | Coulomb counting | EKF+capacity state');
+    mux_sub(m, 'SOC_Error_Scope', {eb('SOC_pct'), ea('SOC_pct'), es('SOC_pct')}, 'Ref_SOC_Percent/1', [x0 155], ...
+        'EKF error | Adaptive EKF error | EKF+capacity error [%]');
     mux_scope(m, 'Voltage_Tracking_Scope', {'Demux_Replay/2', ea('Voltage_V')}, [x0 260], ...
         'Measured V (real cell) | Adaptive EKF predicted V');
-    scope(m, 'R_Adaptation_Scope', ea('R_cov_V2'), [x0 350], 'Sage-Husa measurement-noise variance R');
-    scope(m, 'R0_Tracking_Scope', ea('R0_Ohm'), [x0 430], 'R0 used by adaptive model [ohm]');
-    scope(m, 'Innovation_NIS_Scope', ea('NIS'), [x0 510], 'NIS (expect ~1)');
-    scope(m, 'Diagnostic_Fault_Code_Scope', ea('FaultCode'), [x0 590], 'Diagnostic bit-mask');
-    mux_scope(m, 'Capacity_SOH_Scope', {es('CapacityRatio'), 'True_Capacity_Ratio/1'}, [x0 670], ...
+    scope(m, 'Innovation_NIS_Scope', ea('NIS'), [x0 370], 'NIS (expect ~1)');
+    scope(m, 'Diagnostic_Fault_Code_Scope', ea('FaultCode'), [x0 480], 'Diagnostic bit-mask');
+    scope(m, 'R0_Tracking_Scope', ea('R0_Ohm'), [x0 590], 'R0 used by adaptive model [ohm]');
+    scope(m, 'R_Adaptation_Scope', ea('R_cov_V2'), [x0 700], 'Sage-Husa measurement-noise variance R');
+    mux_scope(m, 'Capacity_SOH_Scope', {es('CapacityRatio'), 'True_Capacity_Ratio/1'}, [x0 805], ...
         'Estimated capacity ratio (SOH) | true capacity ratio');
-    add_block('simulink/Sinks/Display', [m '/Live_SOC_Display'], 'Position', [x0 + 80 50 x0 + 170 85]);
+    add_block('simulink/Sinks/Display', [m '/Live_SOC_Display'], 'Position', [x0 + 100 45 x0 + 190 80]);
     ln(m, ea('SOC_pct'), 'Live_SOC_Display/1');
 
+    % Logger placed cleanly below bus selectors
     names = {'Ref_SOC_Percent/1', eb('SOC_pct'), ea('SOC_pct'), eb('SOC_Coulomb_pct'), 'Demux_Replay/2', ...
              ea('Voltage_V'), ea('Innovation_V'), ea('NIS'), ea('FaultCode'), ea('R0_Ohm'), ea('R_cov_V2'), ...
              es('SOC_pct'), es('CapacityRatio')};
-    logger(m, names, [x0 760]);
+    logger(m, names, [750 860]);
 
     note(m, sprintf(['Real-data BMS: replays measured NASA Ames discharge.\n' ...
                      'Estimators use referenced model bms_estimator_ref.slx.\n' ...
@@ -376,9 +377,9 @@ function build_unified(here)
     ln(m, 'Inject_Faults_On_Replay/1',   'Input_Source_Variant/6');
 
     % --- Estimator Bank (3 Referenced Models) -------------------------------
-    const(m, 'Mode_Baseline', '0',  [500 240 540 260]);
-    const(m, 'Mode_Adaptive', '2',  [500 440 540 460]);
-    const(m, 'Mode_Capacity', '10', [500 640 540 660]);
+    const(m, 'Mode_Baseline', '0',  [500 215 540 235]);
+    const(m, 'Mode_Adaptive', '2',  [500 425 540 445]);
+    const(m, 'Mode_Capacity', '10', [500 635 540 655]);
 
     add_block('simulink/Ports & Subsystems/Model', [m '/EKF_Baseline'], 'ModelName', 'bms_estimator_ref', ...
         'Position', [580 80 780 270]);
@@ -405,11 +406,14 @@ function build_unified(here)
     SH  = {'SOC_pct', 'CapacityRatio'};
     MS  = {'Voltage_V'};
 
-    bsel(m, 'BS_Reference', 'Input_Source_Variant/2',   REF, [840  30 845  90]);
-    bsel(m, 'BS_Baseline',  'EKF_Baseline/1',           EK,  [840 120 845 190]);
-    bsel(m, 'BS_Adaptive',  'SOTA_Adaptive_Controller/1', SA, [840 320 845 490]);
-    bsel(m, 'BS_Capacity',  'SOH_Capacity_Estimator/1',   SH, [840 530 845 600]);
-    bsel(m, 'BS_Measured',  'Input_Source_Variant/1',   MS,  [840 640 845 680]);
+    add_block('simulink/Signal Routing/Bus Selector', [m '/BS_Reference'], 'OutputSignals', strjoin(REF, ','), ...
+        'Position', [840  40 845 120]);
+    ln(m, 'Input_Source_Variant/2', 'BS_Reference/1');
+
+    bsel(m, 'BS_Baseline',  'EKF_Baseline/1',           EK,  [840 150 845 230]);
+    bsel(m, 'BS_Adaptive',  'SOTA_Adaptive_Controller/1', SA, [840 280 845 600]);
+    bsel(m, 'BS_Capacity',  'SOH_Capacity_Estimator/1',   SH, [840 650 845 730]);
+    bsel(m, 'BS_Measured',  'Input_Source_Variant/1',   MS,  [840 770 845 810]);
 
     er = @(s) sig('BS_Reference', REF, s);
     eb = @(s) sig('BS_Baseline', EK, s);
@@ -417,27 +421,28 @@ function build_unified(here)
     es = @(s) sig('BS_Capacity', SH, s);
     em = @(s) sig('BS_Measured', MS, s);
 
-    x0 = 1050;
+    % Scopes vertically aligned in matching signal order with generous spacing
+    x0 = 1160;
     mux_scope(m, 'SOC_Comparison_Scope', {er('SOC_pct'), eb('SOC_pct'), ea('SOC_pct'), eb('SOC_Coulomb_pct'), es('SOC_pct')}, ...
         [x0 50], 'Reference SOC | EKF | Adaptive EKF | Coulomb Counting | EKF+capacity');
-    mux_sub(m, 'SOC_Error_Scope', {eb('SOC_pct'), ea('SOC_pct'), es('SOC_pct')}, er('SOC_pct'), [x0 150], ...
+    mux_sub(m, 'SOC_Error_Scope', {eb('SOC_pct'), ea('SOC_pct'), es('SOC_pct')}, er('SOC_pct'), [x0 155], ...
         'EKF error | Adaptive EKF error | EKF+capacity error [%]');
-    mux_scope(m, 'Voltage_Tracking_Scope', {em('Voltage_V'), ea('Voltage_V')}, [x0 250], ...
+    mux_scope(m, 'Voltage_Tracking_Scope', {em('Voltage_V'), ea('Voltage_V')}, [x0 260], ...
         'Measured V | Adaptive EKF predicted V');
-    scope(m, 'R_Adaptation_Scope', ea('R_cov_V2'), [x0 340], 'Sage-Husa measurement-noise variance R');
-    scope(m, 'R0_Tracking_Scope', ea('R0_Ohm'), [x0 420], 'R0 used by adaptive model [ohm]');
-    scope(m, 'Innovation_NIS_Scope', ea('NIS'), [x0 500], 'NIS (expect ~1)');
-    scope(m, 'Diagnostic_Fault_Code_Scope', ea('FaultCode'), [x0 580], 'Diagnostic bit-mask');
-    scope(m, 'Capacity_SOH_Scope', es('CapacityRatio'), [x0 660], 'Estimated capacity ratio (SOH)');
+    scope(m, 'Innovation_NIS_Scope', ea('NIS'), [x0 370], 'NIS (expect ~1)');
+    scope(m, 'Diagnostic_Fault_Code_Scope', ea('FaultCode'), [x0 480], 'Diagnostic bit-mask');
+    scope(m, 'R0_Tracking_Scope', ea('R0_Ohm'), [x0 590], 'R0 used by adaptive model [ohm]');
+    scope(m, 'R_Adaptation_Scope', ea('R_cov_V2'), [x0 700], 'Sage-Husa measurement-noise variance R');
+    scope(m, 'Capacity_SOH_Scope', es('CapacityRatio'), [x0 805], 'Estimated capacity ratio (SOH)');
 
-    add_block('simulink/Sinks/Display', [m '/Live_SOC_Display'], 'Position', [x0 + 80 45 x0 + 170 80]);
-    ln(m, ea('SOC_pct'), 'Live_SOC_Display/1');
+    add_block('simulink/Sinks/Display', [m '/Live_SOC_Display'], 'Position', [x0 + 100 45 x0 + 190 80]);
+    ln(m, er('SOC_pct'), 'Live_SOC_Display/1');
 
-    % Logger (14 machine-readable columns)
+    % Logger (14 machine-readable columns) placed in clean corridor below bus selectors
     names = {er('SOC_pct'), eb('SOC_pct'), ea('SOC_pct'), eb('SOC_Coulomb_pct'), em('Voltage_V'), ...
              ea('Voltage_V'), ea('Innovation_V'), ea('NIS'), ea('FaultCode'), ea('R0_Ohm'), ea('R_cov_V2'), ...
              es('SOC_pct'), es('CapacityRatio'), er('Source_Tag')};
-    logger(m, names, [x0 740]);
+    logger(m, names, [920 860]);
 
     note(m, sprintf(['Unified BMS Model: connects synthetic simulation and real NASA replay via Variant Subsystem.\n' ...
                      'Input: BMS_Source (1: SIM, 2: REPLAY). Sensors: inject faults on replay via BMS_InjectFaultsOnReplay.\n' ...
