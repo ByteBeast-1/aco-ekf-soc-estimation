@@ -377,16 +377,16 @@ function build_unified(here)
     ln(m, 'Inject_Faults_On_Replay/1',   'Input_Source_Variant/6');
 
     % --- Estimator Bank (3 Referenced Models) -------------------------------
-    const(m, 'Mode_Baseline', '0',  [500 215 540 235]);
-    const(m, 'Mode_Adaptive', '2',  [500 425 540 445]);
-    const(m, 'Mode_Capacity', '10', [500 635 540 655]);
+    const(m, 'Mode_Baseline', '0',  [500 185 540 205]);
+    const(m, 'Mode_Adaptive', '2',  [500 405 540 425]);
+    const(m, 'Mode_Capacity', '10', [500 625 540 645]);
 
     add_block('simulink/Ports & Subsystems/Model', [m '/EKF_Baseline'], 'ModelName', 'bms_estimator_ref', ...
-        'Position', [580 80 780 270]);
+        'Position', [580 80 780 240]);
     add_block('simulink/Ports & Subsystems/Model', [m '/SOTA_Adaptive_Controller'], 'ModelName', 'bms_estimator_ref', ...
-        'Position', [580 290 780 480]);
+        'Position', [580 300 780 460]);
     add_block('simulink/Ports & Subsystems/Model', [m '/SOH_Capacity_Estimator'], 'ModelName', 'bms_estimator_ref', ...
-        'Position', [580 500 780 690]);
+        'Position', [580 520 780 680]);
 
     for c = {'EKF_Baseline', 'SOTA_Adaptive_Controller', 'SOH_Capacity_Estimator'}
         ln(m, 'Input_Source_Variant/1', [c{1} '/1']);  % BMS_Measurement bus
@@ -411,9 +411,9 @@ function build_unified(here)
     ln(m, 'Input_Source_Variant/2', 'BS_Reference/1');
 
     bsel(m, 'BS_Baseline',  'EKF_Baseline/1',           EK,  [840 150 845 230]);
-    bsel(m, 'BS_Adaptive',  'SOTA_Adaptive_Controller/1', SA, [840 280 845 600]);
-    bsel(m, 'BS_Capacity',  'SOH_Capacity_Estimator/1',   SH, [840 650 845 730]);
-    bsel(m, 'BS_Measured',  'Input_Source_Variant/1',   MS,  [840 770 845 810]);
+    bsel(m, 'BS_Adaptive',  'SOTA_Adaptive_Controller/1', SA, [840 280 845 620]);
+    bsel(m, 'BS_Capacity',  'SOH_Capacity_Estimator/1',   SH, [840 670 845 750]);
+    bsel(m, 'BS_Measured',  'Input_Source_Variant/1',   MS,  [840 790 845 830]);
 
     er = @(s) sig('BS_Reference', REF, s);
     eb = @(s) sig('BS_Baseline', EK, s);
@@ -422,27 +422,27 @@ function build_unified(here)
     em = @(s) sig('BS_Measured', MS, s);
 
     % Scopes vertically aligned in matching signal order with generous spacing
-    x0 = 1160;
+    x0 = 1180;
     mux_scope(m, 'SOC_Comparison_Scope', {er('SOC_pct'), eb('SOC_pct'), ea('SOC_pct'), eb('SOC_Coulomb_pct'), es('SOC_pct')}, ...
         [x0 50], 'Reference SOC | EKF | Adaptive EKF | Coulomb Counting | EKF+capacity');
-    mux_sub(m, 'SOC_Error_Scope', {eb('SOC_pct'), ea('SOC_pct'), es('SOC_pct')}, er('SOC_pct'), [x0 155], ...
+    mux_sub(m, 'SOC_Error_Scope', {eb('SOC_pct'), ea('SOC_pct'), es('SOC_pct')}, er('SOC_pct'), [x0 165], ...
         'EKF error | Adaptive EKF error | EKF+capacity error [%]');
-    mux_scope(m, 'Voltage_Tracking_Scope', {em('Voltage_V'), ea('Voltage_V')}, [x0 260], ...
+    mux_scope(m, 'Voltage_Tracking_Scope', {em('Voltage_V'), ea('Voltage_V')}, [x0 280], ...
         'Measured V | Adaptive EKF predicted V');
-    scope(m, 'Innovation_NIS_Scope', ea('NIS'), [x0 370], 'NIS (expect ~1)');
-    scope(m, 'Diagnostic_Fault_Code_Scope', ea('FaultCode'), [x0 480], 'Diagnostic bit-mask');
-    scope(m, 'R0_Tracking_Scope', ea('R0_Ohm'), [x0 590], 'R0 used by adaptive model [ohm]');
-    scope(m, 'R_Adaptation_Scope', ea('R_cov_V2'), [x0 700], 'Sage-Husa measurement-noise variance R');
-    scope(m, 'Capacity_SOH_Scope', es('CapacityRatio'), [x0 805], 'Estimated capacity ratio (SOH)');
+    scope(m, 'Innovation_NIS_Scope', ea('NIS'), [x0 395], 'NIS (expect ~1)');
+    scope(m, 'Diagnostic_Fault_Code_Scope', ea('FaultCode'), [x0 505], 'Diagnostic bit-mask');
+    scope(m, 'R0_Tracking_Scope', ea('R0_Ohm'), [x0 615], 'R0 used by adaptive model [ohm]');
+    scope(m, 'R_Adaptation_Scope', ea('R_cov_V2'), [x0 725], 'Sage-Husa measurement-noise variance R');
+    scope(m, 'Capacity_SOH_Scope', es('CapacityRatio'), [x0 835], 'Estimated capacity ratio (SOH)');
 
-    add_block('simulink/Sinks/Display', [m '/Live_SOC_Display'], 'Position', [x0 + 100 45 x0 + 190 80]);
+    add_block('simulink/Sinks/Display', [m '/Live_SOC_Display'], 'Position', [x0 + 80 45 x0 + 170 80]);
     ln(m, er('SOC_pct'), 'Live_SOC_Display/1');
 
     % Logger (14 machine-readable columns) placed in clean corridor below bus selectors
     names = {er('SOC_pct'), eb('SOC_pct'), ea('SOC_pct'), eb('SOC_Coulomb_pct'), em('Voltage_V'), ...
              ea('Voltage_V'), ea('Innovation_V'), ea('NIS'), ea('FaultCode'), ea('R0_Ohm'), ea('R_cov_V2'), ...
              es('SOC_pct'), es('CapacityRatio'), er('Source_Tag')};
-    logger(m, names, [920 860]);
+    logger(m, names, [920 880]);
 
     note(m, sprintf(['Unified BMS Model: connects synthetic simulation and real NASA replay via Variant Subsystem.\n' ...
                      'Input: BMS_Source (1: SIM, 2: REPLAY). Sensors: inject faults on replay via BMS_InjectFaultsOnReplay.\n' ...
@@ -460,12 +460,12 @@ function build_choice_sim(p)
 
     % In1 and Out1 already exist in Subsystem
     set_param([p '/In1'],  'Position', [40  60 70  75]);
-    set_param([p '/Out1'], 'Position', [620 115 650 135], 'UseBusObject', 'on', 'BusObject', 'BMS_Measurement');
+    set_param([p '/Out1'], 'Position', [640 115 670 135], 'UseBusObject', 'on', 'BusObject', 'BMS_Measurement');
 
     for i = 2:6
         add_block('simulink/Sources/In1', sprintf('%s/In%d', p, i), 'Position', [40, 20 + 40 * i, 70, 35 + 40 * i]);
     end
-    add_block('simulink/Sinks/Out1', [p '/Out2'], 'Position', [620 255 650 275]);
+    add_block('simulink/Sinks/Out1', [p '/Out2'], 'Position', [640 265 670 285]);
     set_param([p '/Out2'], 'UseBusObject', 'on', 'BusObject', 'BMS_Reference');
 
     add_block('simulink/Sinks/Terminator', [p '/Term1'], 'Position', [100 100 120 115]);
@@ -475,25 +475,25 @@ function build_choice_sim(p)
 
     mfb_sub(p, 'Battery_Physics_Plant', [160 50 320 170], plant_code('synthetic'), [0.80 0.90 1.00], ...
         {'truth', 'BMS_PlantTruth'});
-    mfb_sub(p, 'Sensor_Measurement',    [380 50 540 200], sensor_code('synthetic'), [1.00 0.90 0.75], ...
+    mfb_sub(p, 'Sensor_Measurement',    [390 50 550 200], sensor_code('synthetic'), [1.00 0.90 0.75], ...
         {'truth', 'BMS_PlantTruth', 'meas', 'BMS_Measurement'});
 
     add_line(p, 'In1/1',                   'Battery_Physics_Plant/1'); % Drive current
     add_line(p, 'In3/1',                   'Battery_Physics_Plant/2'); % SOC0
     add_line(p, 'Battery_Physics_Plant/1', 'Sensor_Measurement/1');
-    add_line(p, 'In1/1',                   'Sensor_Measurement/2');
+    add_line(p, 'In1/1',                   'Sensor_Measurement/2', 'autorouting', 'on');
     add_line(p, 'In4/1',                   'Sensor_Measurement/3');    % Fault_Mode
     add_line(p, 'In5/1',                   'Sensor_Measurement/4');    % Seed
     add_line(p, 'Sensor_Measurement/1',    'Out1/1');
 
     % Reference bus builder
     add_block('simulink/Signal Routing/Bus Selector', [p '/BS_Truth'], 'OutputSignals', 'SOC_pct', ...
-        'Position', [380 230 385 270]);
+        'Position', [390 230 395 270]);
     add_line(p, 'Battery_Physics_Plant/1', 'BS_Truth/1');
 
-    add_block('simulink/Sources/Constant', [p '/Source_Tag_0'], 'Value', '0.0', 'Position', [420 280 460 300]);
+    add_block('simulink/Sources/Constant', [p '/Source_Tag_0'], 'Value', '0.0', 'Position', [420 300 460 320], 'ShowName', 'off');
     add_block('simulink/Signal Routing/Bus Creator', [p '/Bus_Reference'], 'Inputs', '2', ...
-        'UseBusObject', 'on', 'BusObject', 'BMS_Reference', 'Position', [500 230 505 300]);
+        'UseBusObject', 'on', 'BusObject', 'BMS_Reference', 'Position', [520 230 525 320]);
     add_line(p, 'BS_Truth/1',      'Bus_Reference/1');
     h2 = add_line(p, 'Source_Tag_0/1',  'Bus_Reference/2');
     set_param(h2, 'Name', 'Source_Tag');
@@ -506,12 +506,12 @@ function build_choice_replay(p)
     for i = 1:numel(lines), if lines(i).Handle ~= -1, delete_line(lines(i).Handle); end; end
 
     set_param([p '/In1'],  'Position', [40  60 70  75]);
-    set_param([p '/Out1'], 'Position', [460 130 490 150], 'UseBusObject', 'on', 'BusObject', 'BMS_Measurement');
+    set_param([p '/Out1'], 'Position', [480 130 510 150], 'UseBusObject', 'on', 'BusObject', 'BMS_Measurement');
 
     for i = 2:6
         add_block('simulink/Sources/In1', sprintf('%s/In%d', p, i), 'Position', [40, 20 + 40 * i, 70, 35 + 40 * i]);
     end
-    add_block('simulink/Sinks/Out1', [p '/Out2'], 'Position', [460 265 490 285]);
+    add_block('simulink/Sinks/Out1', [p '/Out2'], 'Position', [480 265 510 285]);
     set_param([p '/Out2'], 'UseBusObject', 'on', 'BusObject', 'BMS_Reference');
 
     add_block('simulink/Sinks/Terminator', [p '/Term1'], 'Position', [100 60 120 75]);
@@ -521,25 +521,25 @@ function build_choice_replay(p)
     add_line(p, 'In3/1', 'Term2/1'); % SOC0
     add_line(p, 'In5/1', 'Term3/1'); % Seed
 
-    add_block('simulink/Signal Routing/Demux', [p '/Demux_Replay'], 'Outputs', '4', 'Position', [140 90 145 190]);
+    add_block('simulink/Signal Routing/Demux', [p '/Demux_Replay'], 'Outputs', '4', 'Position', [140 70 145 170]);
     add_line(p, 'In2/1', 'Demux_Replay/1'); % NASA_Replay
 
-    mfb_sub(p, 'Sensor_Replay_Fault', [220 70 380 210], replay_sensor_code(), [1.00 0.90 0.75], ...
+    mfb_sub(p, 'Sensor_Replay_Fault', [240 70 400 210], replay_sensor_code(), [1.00 0.90 0.75], ...
         {'meas', 'BMS_Measurement'});
     add_line(p, 'Demux_Replay/1', 'Sensor_Replay_Fault/1');  % I
     add_line(p, 'Demux_Replay/2', 'Sensor_Replay_Fault/2');  % V
     add_line(p, 'Demux_Replay/3', 'Sensor_Replay_Fault/3');  % T
     add_line(p, 'In4/1',          'Sensor_Replay_Fault/4');  % fault mode
-    add_line(p, 'In6/1',          'Sensor_Replay_Fault/5');  % inject fault flag
+    add_line(p, 'In6/1',          'Sensor_Replay_Fault/5', 'autorouting', 'on');
     add_line(p, 'Sensor_Replay_Fault/1', 'Out1/1');
 
     % Reference bus builder
-    add_block('simulink/Math Operations/Gain', [p '/Ref_SOC_Percent'], 'Gain', '100', 'Position', [220 240 260 270]);
+    add_block('simulink/Math Operations/Gain', [p '/Ref_SOC_Percent'], 'Gain', '100', 'Position', [240 245 275 275]);
     add_line(p, 'Demux_Replay/4', 'Ref_SOC_Percent/1');
 
-    add_block('simulink/Sources/Constant', [p '/Source_Tag_1'], 'Value', '1.0', 'Position', [220 290 260 310]);
+    add_block('simulink/Sources/Constant', [p '/Source_Tag_1'], 'Value', '1.0', 'Position', [240 305 275 325], 'ShowName', 'off');
     add_block('simulink/Signal Routing/Bus Creator', [p '/Bus_Reference'], 'Inputs', '2', ...
-        'UseBusObject', 'on', 'BusObject', 'BMS_Reference', 'Position', [330 240 335 310]);
+        'UseBusObject', 'on', 'BusObject', 'BMS_Reference', 'Position', [350 240 355 330]);
     h1 = add_line(p, 'Ref_SOC_Percent/1', 'Bus_Reference/1');
     set_param(h1, 'Name', 'SOC_pct');
     h2 = add_line(p, 'Source_Tag_1/1',    'Bus_Reference/2');
@@ -680,35 +680,35 @@ end
 function mux_scope(m, name, srcs, pos, desc)
     mx = ['Mux_' name];
     add_block('simulink/Signal Routing/Mux', [m '/' mx], 'Inputs', num2str(numel(srcs)), ...
-        'Position', [pos(1) - 30 pos(2) pos(1) - 25 pos(2) + 20 + 10 * numel(srcs)]);
+        'Position', [pos(1) - 60 pos(2) pos(1) - 55 pos(2) + 20 + 10 * numel(srcs)]);
     for i = 1:numel(srcs),  ln(m, srcs{i}, sprintf('%s/%d', mx, i));  end
     set_param([m '/' mx], 'ShowName', 'off');
-    scope(m, name, [mx '/1'], pos, desc);
+    scope(m, name, [mx '/1'], [pos(1) + 20 pos(2)], desc);
 end
 
 function sub_scope(m, name, a, b, pos, desc)
     sb = ['Sub_' name];
     add_block('simulink/Math Operations/Subtract', [m '/' sb], 'Inputs', '+-', ...
-        'Position', [pos(1) - 70 pos(2) pos(1) - 45 pos(2) + 30]);
+        'Position', [pos(1) - 90 pos(2) pos(1) - 65 pos(2) + 30]);
     ln(m, a, [sb '/1']);  ln(m, b, [sb '/2']);
     set_param([m '/' sb], 'ShowName', 'off');
-    scope(m, name, [sb '/1'], pos, desc);
+    scope(m, name, [sb '/1'], [pos(1) + 20 pos(2)], desc);
 end
 
 function mux_sub(m, name, ests, ref, pos, desc)
     mx = ['Mux_' name];
     add_block('simulink/Signal Routing/Mux', [m '/' mx], 'Inputs', num2str(numel(ests)), ...
-        'Position', [pos(1) - 30 pos(2) pos(1) - 25 pos(2) + 30]);
+        'Position', [pos(1) - 45 pos(2) pos(1) - 40 pos(2) + 30]);
     for i = 1:numel(ests)
         sb = sprintf('Sub_%s_%d', name, i);
         add_block('simulink/Math Operations/Subtract', [m '/' sb], 'Inputs', '+-', ...
-            'Position', [pos(1) - 100 pos(2) + 35 * (i - 1) pos(1) - 75 pos(2) + 25 + 35 * (i - 1)]);
+            'Position', [pos(1) - 120 pos(2) + 35 * (i - 1) pos(1) - 95 pos(2) + 25 + 35 * (i - 1)]);
         ln(m, ests{i}, [sb '/1']);  ln(m, ref, [sb '/2']);
         ln(m, [sb '/1'], sprintf('%s/%d', mx, i));
         set_param([m '/' sb], 'ShowName', 'off');
     end
     set_param([m '/' mx], 'ShowName', 'off');
-    scope(m, name, [mx '/1'], pos, desc);
+    scope(m, name, [mx '/1'], [pos(1) + 20 pos(2)], desc);
 end
 
 function logger(m, sigs, pos)
