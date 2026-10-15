@@ -77,14 +77,16 @@ function ok = run_everything(mode)
     py_tool = fullfile(root_dir, 'tools', 'make_results_table.py');
     readme_path = fullfile(root_dir, 'README.md');
     csv_path = fullfile(here, 'results', 'bms_regression_results.csv');
-    cross_csv = fullfile(here, 'results', 'cross_matrix.csv');
+    tuner_csv = fullfile(here, 'results', 'tuner_compare.csv');
+    wide_csv  = fullfile(here, 'results', 'tuner_compare_wide.csv');
+    cv_csv    = fullfile(root_dir, 'results', 'cv_study.csv');
 
-    cmd = sprintf('python "%s" --csv "%s" --cross-csv "%s" --update "%s"', ...
-        py_tool, csv_path, cross_csv, readme_path);
+    cmd = sprintf('python "%s" --csv "%s" --cross-csv "%s" --tuner-csv "%s" --wide-csv "%s" --cv-csv "%s" --update "%s"', ...
+        py_tool, csv_path, cross_csv, tuner_csv, wide_csv, cv_csv, readme_path);
     [status, cmdout] = system(cmd);
     if status ~= 0
-        cmd_py = sprintf('py "%s" --csv "%s" --cross-csv "%s" --update "%s"', ...
-            py_tool, csv_path, cross_csv, readme_path);
+        cmd_py = sprintf('py "%s" --csv "%s" --cross-csv "%s" --tuner-csv "%s" --wide-csv "%s" --cv-csv "%s" --update "%s"', ...
+            py_tool, csv_path, cross_csv, tuner_csv, wide_csv, cv_csv, readme_path);
         [status, cmdout] = system(cmd_py);
     end
 

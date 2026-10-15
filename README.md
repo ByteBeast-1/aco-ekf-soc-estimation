@@ -5,7 +5,7 @@
 [![MATLAB R2024b](https://img.shields.io/badge/MATLAB-R2024b-orange.svg)](simulink_matlab/)
 [![Simulink Models](https://img.shields.io/badge/Simulink-MBD-red.svg)](simulink_matlab/)
 [![Embedded C](https://img.shields.io/badge/C99-gcc%20--Wall%20--Wextra%20--Wconversion%20clean-brightgreen.svg)](c_firmware/)
-[![Regression Suite](https://img.shields.io/badge/Regression-33%2F33%20PASS-brightgreen.svg)](simulink_matlab/results/baseline_regression_20261013.txt)
+[![Regression Suite](https://img.shields.io/badge/Regression-54%2F54%20PASS-brightgreen.svg)](simulink_matlab/results/bms_regression_results.csv)
 
 A model-based design, automotive-style, multi-platform engineering implementation of the **Thermal-Adaptive 2-RC Multi-Objective Ant Colony Optimized Extended Kalman Filter (MO-ACO-EKF)** for Lithium-Ion Battery State-of-Charge (SOC) and State-of-Health (SOH) estimation.
 
@@ -55,7 +55,7 @@ aco-ekf-soc-estimation/
 │   ├── lib/                         #   Shared algorithm library (plant, sensors, EKF, ACO tuner, NASA loader)
 │   ├── build_bms_models.m           #   Programmatically regenerates both models from lib/
 │   ├── run_simulink.m, run_sota_simulink.m
-│   ├── run_bms_regression.m         #   33-check automated verification suite
+│   ├── run_bms_regression.m         #   54-check automated verification suite
 │   └── results/                     #   Regression CSV, baseline logs, block-diagram snapshots
 │
 ├── c_firmware/                      # Embedded ANSI C firmware (<250 B RAM)
@@ -119,12 +119,12 @@ aco-ekf-soc-estimation/
 | Injected Fault Mode ($t=900\text{--}1200\text{ s}$) | Filter MAE (%) | Max Error (%) | Diagnostic Flag Status | Safety Behavior |
 | :--- | :---: | :---: | :---: | :--- |
 | **Mode 0: Normal (No Fault)** | 0.146% | 0.40% | Clear (0) | Baseline nominal tracking |
-| **Mode 1: Current Sensor Bias (+0.25 A)** | 0.371% | 0.75% | Unflagged (Silent Drift) | Sensor bias not detected by outlier gate; error reaches 0.75% |
+| **Mode 1: Current Sensor Bias (+0.25 A)** | 0.371% | 0.75% | **Detected (Bit 32: Current Offset)** | Flags persistent bias within 204 s; error reaches 0.75% |
 | **Mode 2: Voltage Sensor Glitches ($\pm 0.5\text{ V}$)** | 0.144% | 0.40% | **Detected (Bit 8: Residual Rejected)** | Outliers rejected by NIS gating; zero error impact |
 | **Mode 3: Thermistor Disconnect (Open Circuit)** | 0.147% | 0.40% | **Detected (Bit 2: Temp Out of Range)** | Holds last good temperature (`T = st.T_last`) |
 
 > [!NOTE]
-> **Convergence Window Exclusion:** All error metrics (MAE and max error) in the tables above exclude the initial 120 s convergence window (`skip = 120 s` in `simulink_matlab/run_bms_regression.m`), evaluating steady-state performance once initial offsets have settled.
+> **Convergence Window Exclusion & Offset Sensitivity:** All error metrics (MAE and max error) in the tables above exclude the initial 120 s convergence window (`skip = 120 s` in `simulink_matlab/run_bms_regression.m`), evaluating steady-state performance once initial offsets have settled. The measured minimum current offset that the bit-32 detector flags is $\pm 0.25\text{ A}$ (reliably flagged within $204\text{ s}$ on UDDS), whereas sub-threshold offsets $\le \pm 0.10\text{ A}$ produce smoothed innovation bias below the $5.5\text{ mV}$ threshold and remain unflagged.
 
 ---
 
@@ -138,22 +138,22 @@ aco-ekf-soc-estimation/
 > - **Fault Diagnostics:** Evaluates per-spike detection for periodic glitches (spikes occur every 25 samples between $t = 899\text{ s}$ and $1199\text{ s}$, 13 spikes total) reporting fraction of spikes flagged and first-flag delay after the first spike.
 
 > [!IMPORTANT]
-> **Summary:** Baseline EKF is best on healthy cells, Capacity SOH EKF is best on the aged cell, and Adaptive EKF (Sage-Husa) shows no clear gain.
+> **Summary:** Baseline EKF is best on healthy fresh cells and requires no tuning. Across all six aged NASA cycles (cycles #60 and #120 of B0005, B0006, and B0007), online Capacity SOH EKF achieves a mean MAE of 3.096% vs 3.136% for baseline EKF (-0.039 pp shift), showing that capacity adaptation provides only modest cell-dependent gains and does not consistently improve over baseline across all cells (e.g., slightly higher error on aged B0006). Adaptive EKF (Sage-Husa) shows no clear gain on real data.
 
 | Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity SOH EKF MAE | Worst Max Err | Time to $\le 1\%$ (stay 60s) (Baseline EKF) | Post-120s Err $>1\%$ (Baseline EKF) | Fault Diagnostics |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
 | **sim_clean_udds** | `synthetic` | Mode 0 | 0.163% | 0.166% | 0.163% | 0.71% | 2 s | 0.0% | None |
 | **sim_pulse** | `synthetic` | Mode 0 | 0.112% | 0.114% | 0.112% | 0.70% | 2 s | 0.0% | None |
-| **sim_fault1_I_offset** | `synthetic` | Mode 1 | 0.387% | 0.364% | 0.387% | 0.74% | 2 s | 0.0% | Unflagged |
+| **sim_fault1_I_offset** | `synthetic` | Mode 1 | 0.387% | 0.364% | 0.387% | 0.74% | 2 s | 0.0% | **Detected (Bit 32)** |
 | **sim_fault2_V_spike** | `synthetic` | Mode 2 | 0.162% | 0.166% | 0.162% | 0.71% | 2 s | 0.0% | **100% spikes (delay 0s)** |
 | **sim_fault3_T_open** | `synthetic` | Mode 3 | 0.160% | 0.163% | 0.160% | 0.71% | 2 s | 0.0% | **Instant (delay 0s)** |
 | **sim_monte_carlo** | `synthetic` | Mode 0 | 0.169% | 0.180% | 0.169% | 1.16% | 24 s | 0.0% | None |
 | **nasa_B0005_clean** | `nasa` | Mode 0 | 0.664% | 0.721% | 0.664% | 2.49% | 689 s | 17.7% | None |
-| **nasa_B0005_fault1** | `nasa` | Mode 1 | 0.644% | 0.771% | 0.644% | 2.49% | 689 s | 20.8% | Unflagged |
+| **nasa_B0005_fault1** | `nasa` | Mode 1 | 0.644% | 0.771% | 0.644% | 2.49% | 689 s | 20.8% | **Detected (Bit 32)** |
 | **nasa_B0005_fault2** | `nasa` | Mode 2 | 0.664% | 0.721% | 0.664% | 2.49% | 689 s | 17.7% | **100% spikes (delay 0s)** |
 | **nasa_B0005_fault3** | `nasa` | Mode 3 | 0.669% | 0.722% | 0.669% | 2.49% | 689 s | 17.7% | **Instant (delay 0s)** |
 | **nasa_B0007_clean** | `nasa` | Mode 0 | 0.929% | 1.110% | 0.929% | 2.57% | 460 s | 26.1% | None |
-| **nasa_B0005_aged_120** | `nasa` | Mode 0 | 4.893% | 4.714% | 3.046% | 9.44% | 282 s | 85.2% | None |
+| **nasa_B0005_aged_120** | `nasa` | Mode 0 | 4.893% | 4.714% | 4.712% | 9.44% | 282 s | 85.2% | None |
 
 
 ---
@@ -209,6 +209,7 @@ aco-ekf-soc-estimation/
 > - **Folds:** Rotate across all 3 NASA cells: tune on 2 cells' cycles #1, #60, and #120 (6 cycles); test on the 3rd cell's cycles #1, #60, and #120.
 > - **Methods:** Hand-Tuned baseline, Uniform Grid Search, Random Search (10 seeds), ACO_R (10 seeds, original bounds), and ACO_R with validation-based pick (`ACO_R_Val_Pick`, picking best seed on unseen cycle #30 outside train/test).
 > - **Budget:** Same evaluation budget across all methods.
+> - **Held-Out Generalization vs. In-Sample Notice:** The in-sample re-evaluation of `cv_best` on B0005/B0007 yields 1.869% (and 4.893% -> 2.224% on B0005 #120); these are in-sample figures. The true held-out cross-cell generalization metric is the **3.657%** cross-fold mean.
 
 | Method | Test Cell | Mean MAE (%) | Median MAE (%) | Std MAE (%) | Worst Seed (MAE) | Fresh Cells (#1) [Med / Worst] | Aged Cells (#120) [Med / Worst] |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -256,7 +257,7 @@ cd simulink_matlab
 run_simulink('udds', 0)         % Simulated plant + EKF model (profile, fault mode, init error, seed)
 run_sota_simulink('B0005', 1)   % Replay real NASA discharge through Simulink model
 animate_bms_live                % Launch interactive real-time dashboard GUI
-run_bms_regression              % Run full 33-check automated test harness
+run_bms_regression              % Run full 54-check automated test harness
 build_bms_models                % Programmatically regenerate models from lib/
 ```
 

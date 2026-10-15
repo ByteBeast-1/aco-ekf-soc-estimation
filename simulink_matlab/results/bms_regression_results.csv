@@ -56,7 +56,7 @@ sil,B0005 charge #1,0.000579871679690314,0.293255844726836,0.000117445366094567,
 unified_eq,synthetic_ekf,0,0,NaN,NaN
 unified_eq,nasa_replay,0,0,0,NaN
 unified_eq,switch_nonvacuous,1,1,15.8446675820702,NaN
-cross_matrix,status,1,12,NaN,NaN
+cross_matrix,status,1,36,NaN,NaN
 tuner_compare,status,1,26,NaN,NaN
 tuner_compare_wide,status,1,42,NaN,NaN
 cv_study,status,1,15,NaN,NaN

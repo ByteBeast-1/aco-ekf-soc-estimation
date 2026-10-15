@@ -110,7 +110,7 @@ def format_tables(rows):
         if case == "none":
             lines.append(f"| **Mode 0: Normal (No Fault)** | {mae:.3f}% | {max_err:.2f}% | Clear (0) | Baseline nominal tracking |")
         elif "current offset" in case:
-            lines.append(f"| **Mode 1: Current Sensor Bias (+0.25 A)** | {mae:.3f}% | {max_err:.2f}% | Unflagged (Silent Drift) | Sensor bias not detected by outlier gate; error reaches {max_err:.2f}% |")
+            lines.append(f"| **Mode 1: Current Sensor Bias (+0.25 A)** | {mae:.3f}% | {max_err:.2f}% | **Detected (Bit 32: Current Offset)** | Flags persistent bias within 204 s; error reaches {max_err:.2f}% |")
         elif "voltage glitches" in case:
             lines.append(f"| **Mode 2: Voltage Sensor Glitches ($\\pm 0.5\\text{{ V}}$)** | {mae:.3f}% | {max_err:.2f}% | **Detected (Bit 8: Residual Rejected)** | Outliers rejected by NIS gating; zero error impact |")
         elif "thermistor open" in case:
@@ -118,7 +118,7 @@ def format_tables(rows):
 
     lines.append("")
     lines.append("> [!NOTE]")
-    lines.append("> **Convergence Window Exclusion:** All error metrics (MAE and max error) in the tables above exclude the initial 120 s convergence window (`skip = 120 s` in `simulink_matlab/run_bms_regression.m`), evaluating steady-state performance once initial offsets have settled.")
+    lines.append("> **Convergence Window Exclusion & Offset Sensitivity:** All error metrics (MAE and max error) in the tables above exclude the initial 120 s convergence window (`skip = 120 s` in `simulink_matlab/run_bms_regression.m`), evaluating steady-state performance once initial offsets have settled. The measured minimum current offset that the bit-32 detector flags is $\\pm 0.25\\text{ A}$ (reliably flagged within $204\\text{ s}$ on UDDS), whereas sub-threshold offsets $\\le \\pm 0.10\\text{ A}$ produce smoothed innovation bias below the $5.5\\text{ mV}$ threshold and remain unflagged.")
 
     return "\n".join(lines)
 
@@ -137,7 +137,7 @@ def format_cross_table(cross_rows):
     lines.append("> - **Fault Diagnostics:** Evaluates per-spike detection for periodic glitches (spikes occur every 25 samples between $t = 899\\text{ s}$ and $1199\\text{ s}$, 13 spikes total) reporting fraction of spikes flagged and first-flag delay after the first spike.")
     lines.append("")
     lines.append("> [!IMPORTANT]")
-    lines.append("> **Summary:** Baseline EKF is best on healthy cells, Capacity SOH EKF is best on the aged cell, and Adaptive EKF (Sage-Husa) shows no clear gain.")
+    lines.append("> **Summary:** Baseline EKF is best on healthy fresh cells and requires no tuning. Across all six aged NASA cycles (cycles #60 and #120 of B0005, B0006, and B0007), online Capacity SOH EKF achieves a mean MAE of 3.096% vs 3.136% for baseline EKF (-0.039 pp shift), showing that capacity adaptation provides only modest cell-dependent gains and does not consistently improve over baseline across all cells (e.g., slightly higher error on aged B0006). Adaptive EKF (Sage-Husa) shows no clear gain on real data.")
     lines.append("")
     lines.append("| Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity SOH EKF MAE | Worst Max Err | Time to $\\le 1\\%$ (stay 60s) (Baseline EKF) | Post-120s Err $>1\\%$ (Baseline EKF) | Fault Diagnostics |")
     lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
@@ -198,7 +198,7 @@ def format_cross_table(cross_rows):
             d_sec = float(delay_val) if (delay_val and delay_val.lower() != "nan") else 0
             diag_str = f"**Instant (delay {d_sec:.0f}s)**"
         elif fmode_int == 1:
-            diag_str = "Unflagged"
+            diag_str = "**Detected (Bit 32)**"
         else:
             diag_str = "None"
 
@@ -394,6 +394,7 @@ def format_cv_table(cv_rows):
     lines.append("> - **Folds:** Rotate across all 3 NASA cells: tune on 2 cells' cycles #1, #60, and #120 (6 cycles); test on the 3rd cell's cycles #1, #60, and #120.")
     lines.append("> - **Methods:** Hand-Tuned baseline, Uniform Grid Search, Random Search (10 seeds), ACO_R (10 seeds, original bounds), and ACO_R with validation-based pick (`ACO_R_Val_Pick`, picking best seed on unseen cycle #30 outside train/test).")
     lines.append("> - **Budget:** Same evaluation budget across all methods.")
+    lines.append("> - **Held-Out Generalization vs. In-Sample Notice:** The in-sample re-evaluation of `cv_best` on B0005/B0007 yields 1.869% (and 4.893% -> 2.224% on B0005 #120); these are in-sample figures. The true held-out cross-cell generalization metric is the **3.657%** cross-fold mean.")
     lines.append("")
     lines.append("| Method | Test Cell | Mean MAE (%) | Median MAE (%) | Std MAE (%) | Worst Seed (MAE) | Fresh Cells (#1) [Med / Worst] | Aged Cells (#120) [Med / Worst] |")
     lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
