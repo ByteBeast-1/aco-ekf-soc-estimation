@@ -1,10 +1,14 @@
-function P = bms_params(variant)
+function P = bms_params(variant, tuning)
 %BMS_PARAMS Single source of truth for every cell/filter/sensor parameter.
 %   P = BMS_PARAMS('synthetic')  2-RC cell used by the simulated plant
 %   P = BMS_PARAMS('nasa')       cell calibrated on real NASA data (BMS_NASA_CAL_DATA)
+%   P = BMS_PARAMS('nasa', 'cv_best') uses cross-validation optimal Q and R
 %   Codegen-compatible (no file I/O); safe inside MATLAB Function blocks.
     if nargin < 1
         variant = 'synthetic';
+    end
+    if nargin < 2
+        tuning = 'aco_shipped';
     end
     tuned = bms_tuned_data();
 
@@ -20,7 +24,13 @@ function P = bms_params(variant)
         P.R0 = cal.R0;  P.R1 = cal.R1;  P.R2 = cal.R2;
         P.C1 = cal.C1;  P.C2 = cal.C2;  P.Qn = cal.Qn;
         P.ocv = cal.ocv;
-        P.Q = tuned.nasa.Q;  P.R = tuned.nasa.R;
+        if strcmp(tuning, 'cv_best')
+            % Cross-validation optimal parameters from leave-one-cell-out benchmark (ACO_R_Val_Pick)
+            P.Q = [1.0622e-06; 3.2606e-05; 5.2942e-05];
+            P.R = 2.1843e-03;
+        else
+            P.Q = tuned.nasa.Q;  P.R = tuned.nasa.R;
+        end
         P.P0 = diag([0.0225, 0.0025, 0.0025]);   % 15 % SOC 1-sigma prior
     else
         P.R0 = 0.012;  P.R1 = 0.008;  P.R2 = 0.015;
@@ -54,6 +64,11 @@ function P = bms_params(variant)
     P.max_rej  = 10;             % force-accept after N consecutive rejects
     P.nis_alpha = 0.02;          % consistency monitor EMA factor
     P.nis_limit = 5.0;           % expected mean NIS ~ 1
+    P.ibias_k0  = 150;           % samples before current-bias monitor arms
+    P.ibias_soc_min = 0.08;      % monitor valid window (SOC >= 8%)
+    P.ibias_alpha = 0.02;        % innovation smoothing factor
+    P.ibias_thresh = 0.0055;     % innovation threshold [V] (5.5 mV)
+    P.ibias_count_limit = 20;    % persistence samples before flagging fault
 
     % --- adaptation (SOTA estimator) --------------------------------------
     P.sota_mode = 2;             % bit mask, see bms_est_step (ablation: only R-adaptation helps on real data)
@@ -61,9 +76,14 @@ function P = bms_params(variant)
     P.rls_lambda = 0.999;        % scalar-RLS forgetting for R0 scale
     P.rls_I_min  = 0.3;          % [A]  persistent-excitation gate
     P.rls_bounds = [0.5, 3.0];   % allowed R0 scale
-    P.cap_P0 = 0.01;             % capacity-ratio prior variance (1-sigma 0.1; 0.04 was worse on every cycle)
-    P.cap_Q  = 1e-8;             % capacity random-walk variance per step
-    P.cap_bounds = [0.5, 1.2];   % allowed capacity ratio
+    P.cap_P0 = 4.0e-4;           % capacity-ratio prior variance when unlocked (tuned on B0006)
+    P.cap_Q  = 1.0e-9;           % capacity random-walk variance per step
+    P.cap_bounds = [0.5, 1.0];   % allowed capacity ratio (physical upper bound 1.0)
+    P.cap_k_lock = 200;          % start-up lock-out (samples)
+    P.cap_V_min = 3.48;          % minimum voltage for evidence accumulation [V]
+    P.cap_r_thresh = -0.0040;    % negative innovation threshold [V]
+    P.cap_count_limit = 30;      % persistence counter required to unlock adaptation [s]
+    P.cap_slew_max = 5.0e-4;     % maximum slew rate on capacity ratio [1/s]
     P.R_bounds = [1e-4, 5e-2];
     P.Q_bounds = [1e-9, 1e-4];
 

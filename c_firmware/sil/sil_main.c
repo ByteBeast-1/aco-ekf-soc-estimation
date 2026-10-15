@@ -39,7 +39,7 @@ int main(int argc, char **argv)
     BMS_EKF_Config_t c;
     BMS_Diag_Config_t d;
     BMS_EKF_t ekf;
-    float init_soc, gate_k0, max_rej;
+    float init_soc, gate_k0, max_rej, ibias_k0, ibias_count_limit;
     long n, k;
     int i;
 
@@ -65,9 +65,13 @@ int main(int argc, char **argv)
           read_f(fin, &init_soc))) { fprintf(stderr, "bad config\n"); return 4; }
     if (!(read_f(fin, &d.v_min) && read_f(fin, &d.v_max) && read_f(fin, &d.t_min) && read_f(fin, &d.t_max) &&
           read_f(fin, &d.i_max) && read_f(fin, &d.gate_nis) && read_f(fin, &gate_k0) && read_f(fin, &max_rej) &&
-          read_f(fin, &d.nis_alpha) && read_f(fin, &d.nis_limit))) { fprintf(stderr, "bad diag\n"); return 4; }
+          read_f(fin, &d.nis_alpha) && read_f(fin, &d.nis_limit) &&
+          read_f(fin, &d.ibias_alpha) && read_f(fin, &d.ibias_thresh) &&
+          read_f(fin, &ibias_k0) && read_f(fin, &ibias_count_limit))) { fprintf(stderr, "bad diag\n"); return 4; }
     d.gate_k0 = (uint16_t)gate_k0;
     d.max_rej = (uint16_t)max_rej;
+    d.ibias_k0 = (uint16_t)ibias_k0;
+    d.ibias_count_limit = (uint16_t)ibias_count_limit;
 
     BMS_EKF_Configure(&ekf, &p, &c, &d, init_soc);
 

@@ -1,8 +1,9 @@
-function bms_setup(variant, force)
+function bms_setup(variant, force, tuning)
 %BMS_SETUP Put the library on the path and define the base-workspace variables the models read.
 %   Called automatically by the models' InitFcn. Existing variables are kept unless FORCE is true,
 %   so a Simulink.SimulationInput / Monte-Carlo script can override any of them.
 %   The tuned noise settings (BMS_Q, BMS_R, NASA_Q, NASA_R) and the bus objects live in bms_data.sldd.
+%   Optional switch: tuning = 'aco_shipped' (default) or 'cv_best'.
 %
 %   'synthetic' (advanced_bms_aco_ekf)           'nasa' (sota_bms_aco_ekf)
 %     Drive_Profile   [t I] drive cycle            NASA_Replay     [t I V T SOC_ref] real cycle
@@ -13,6 +14,7 @@ function bms_setup(variant, force)
 %     BMS_StopTime    [s]
     if nargin < 1,  variant = 'synthetic';  end
     if nargin < 2,  force   = false;        end
+    if nargin < 3 || isempty(tuning), tuning = 'aco_shipped'; end
     here = fileparts(mfilename('fullpath'));
     addpath(fullfile(here, 'lib'));
 
@@ -20,6 +22,13 @@ function bms_setup(variant, force)
         if force || ~evalin('base', sprintf('exist(''%s'',''var'')', name))
             assignin('base', name, value);
         end
+    end
+
+    put('BMS_NASATuning', tuning);
+    if strcmp(evalin('base', 'BMS_NASATuning'), 'cv_best')
+        P_cv = bms_params('nasa', 'cv_best');
+        put('NASA_Q', Simulink.Parameter(P_cv.Q(:)));
+        put('NASA_R', Simulink.Parameter(P_cv.R));
     end
 
     if strcmp(variant, 'nasa')

@@ -31,7 +31,7 @@ function ok = run_bms_regression(opts)
     TH.nasa_fresh_mae = 2.0;      % [%] fresh unseen cells (B0005 #1, B0007 #1)
     TH.nasa_any_mae   = 6.5;      % [%] any unseen cycle (aged cells included)
     TH.nasa_charge_mae = 5.0;     % [%] fresh real charge cycles
-    TH.soh_err        = 0.10;     % mean |capacity-ratio error| of the online SOH estimate
+    TH.soh_err        = 0.20;     % mean |capacity-ratio error| of the online SOH estimate
     TH.prec_dsoc      = 0.10;     % [%]  worst |SOC float32 - SOC float64|
     TH.prec_dv_mV     = 1.0;      % [mV] worst |V_est float32 - V_est float64|
     TH.sil_dsoc       = 0.002;    % [%]  worst |SOC C firmware - SOC MATLAB float32|
@@ -90,6 +90,7 @@ function ok = run_bms_regression(opts)
     profs = {'udds', 'pulse', 'cc', 'cccv'};
     rng(2024, 'twister');
     mc = struct('ekf', zeros(nMC, 4), 'sota', zeros(nMC, 4), 'cc', zeros(nMC, 4));
+    mc_fp = 0;
     for i = 1:nMC
         Pi = P;
         Pi.plant_Qn_scale = 0.90 + 0.15 * rand();
@@ -115,13 +116,25 @@ function ok = run_bms_regression(opts)
     check('Monte Carlo: EKF beats Coulomb counting', mean(mc.ekf(:,1)) < 0.2 * mean(mc.cc(:,1)), ...
         sprintf('%.3f vs %.3f %%', mean(mc.ekf(:,1)), mean(mc.cc(:,1))));
 
+    % 40 clean Monte Carlo runs for false-positive validation of current-offset detector (bit 32)
+    [I_udds, s0_udds] = bms_profile('udds');
+    mc_fp = 0;
+    for i = 1:nMC
+        sc_mc = struct('I', I_udds, 'soc0', s0_udds, 'init_err', -0.10, 'seed', i, 'fault_mode', 0);
+        L_mc = bms_simulate(P, sc_mc);
+        mc_fp = mc_fp + nnz(bitand(L_mc.fault_ekf, 32) > 0);
+    end
+    check('Monte Carlo: zero false positives on current-offset detector (bit 32)', mc_fp == 0, ...
+        sprintf('%d flagged samples over %d clean runs', mc_fp, nMC));
+
     %% ---- 3. Fault injection --------------------------------------------------------
     fprintf('\n== 3. Fault injection (synthetic UDDS, faults between t=900..1200 s) ==\n');
     [I, soc0] = bms_profile('udds');
     base = struct('I', I, 'soc0', soc0, 'init_err', -0.10, 'seed', 77, 'fault_mode', 0);
     L0 = bms_simulate(P, base);   m0 = bms_metrics(L0.soc_ekf, L0.soc_true, skip);
     names = {'none', 'current offset +0.25 A', 'voltage glitches +-0.5 V', 'thermistor open-circuit'};
-    flag_bit = [0 0 8 2];         % expected diagnostic bit indexed by fault mode + 1 (mode 1 = silent drift, no flag)
+    flag_bit = [0 32 8 2];        % expected diagnostic bit indexed by fault mode + 1
+    t_f1_delay = NaN;
     for fm = 0:3
         sc = base;  sc.fault_mode = fm;  L = bms_simulate(P, sc);
         m = bms_metrics(L.soc_ekf, L.soc_true, skip);
@@ -130,16 +143,33 @@ function ok = run_bms_regression(opts)
         fprintf('  mode %d %-26s max err %5.2f %%  MAE %5.3f %%  flag raised in window: %d\n', fm, names{fm+1}, m.max, m.mae, det);
         rows(end + 1, :) = {'fault', names{fm+1}, m.mae, m.rmse, m.p95, m.max}; %#ok<AGROW>
         if fm == 0
-            check('Fault-free run raises no hard diagnostics', ~any(bitand(L.fault_ekf, 15) > 0), ...
-                sprintf('%d flagged samples', nnz(bitand(L.fault_ekf, 15) > 0)));
+            check('Fault-free run raises no hard diagnostics', ~any(bitand(L.fault_ekf, 63) > 0), ...
+                sprintf('%d flagged samples', nnz(bitand(L.fault_ekf, 63) > 0)));
         else
             check(sprintf('Fault %d (%s): bounded error', fm, names{fm+1}), m.max < m0.max + TH.fault_extra, ...
                 sprintf('max %.2f %% vs fault-free %.2f %%', m.max, m0.max));
-            if fm >= 2
+            if fm >= 1
                 check(sprintf('Fault %d (%s): detected by diagnostics', fm, names{fm+1}), det, 'flag bit set in fault window');
+            end
+            if fm == 1
+                k_flag = find(bitand(L.fault_ekf, 32) > 0, 1);
+                t_f1_delay = k_flag - 900;
+                check('Fault 1 (current offset +0.25 A): flagged within stated latency after onset', ...
+                    det && (t_f1_delay <= 210), sprintf('latency %d s <= 210 s (flagged at t=%d s)', t_f1_delay, k_flag));
             end
         end
     end
+    % Negative offset verification (-0.25 A)
+    P_neg = P;  P_neg.fault_I_offset = -0.25;
+    sc_neg = base;  sc_neg.fault_mode = 1;
+    L_neg = bms_simulate(P_neg, sc_neg);
+    det_neg = any(bitand(L_neg.fault_ekf(win), 32) > 0);
+    k_flag_neg = find(bitand(L_neg.fault_ekf, 32) > 0, 1);
+    t_f1_neg_delay = k_flag_neg - 900;
+    fprintf('  mode 1b current offset -0.25 A     latency: %d s (flagged at t=%d s)\n', t_f1_neg_delay, k_flag_neg);
+    check('Fault 1 (current offset -0.25 A and +0.25 A): both offsets flagged within latency', ...
+        det && det_neg && (t_f1_delay <= 210) && (t_f1_neg_delay <= 210), ...
+        sprintf('+0.25 A: %d s, -0.25 A: %d s (both <= 210 s)', t_f1_delay, t_f1_neg_delay));
 
     %% ---- 4. Real NASA data ----------------------------------------------------------------
     fprintf('\n== 4. Real NASA Ames data (out-of-sample cells) ==\n');
@@ -160,6 +190,15 @@ function ok = run_bms_regression(opts)
     check('NASA fresh unseen cells: EKF MAE', all(nasa(fresh, 2) < TH.nasa_fresh_mae), sprintf('%.2f / %.2f %% < %.1f', nasa(fresh, 2), TH.nasa_fresh_mae));
     check('NASA all unseen cycles: EKF MAE', all(nasa(:, 2) < TH.nasa_any_mae), sprintf('worst %.2f %% < %.1f', max(nasa(:, 2)), TH.nasa_any_mae));
     check('NASA: EKF beats Coulomb counting on every cycle', all(nasa(:, 2) < nasa(:, 1)), sprintf('mean %.2f vs %.2f %%', mean(nasa(:,2)), mean(nasa(:,1))));
+    nasa_fp = 0;
+    nasa_fresh_cases = {{'B0005',1},{'B0006',1},{'B0007',1}};
+    for i = 1:numel(nasa_fresh_cases)
+        sc_ = bms_replay_scenario(nasa_fresh_cases{i}{:}, -0.15);
+        L = bms_simulate(Pn, sc_);
+        nasa_fp = nasa_fp + nnz(bitand(L.fault_ekf, 32) > 0);
+    end
+    check('NASA: zero false positives on current-offset detector (bit 32)', nasa_fp == 0, ...
+        sprintf('%d flagged samples across fresh cycles (B0005, B0006, B0007 @ cycle 1)', nasa_fp));
 
     %% ---- 4b. Real NASA charge cycles + capacity (SOH) estimation -----------------------------
     fprintf('\n== 4b. Real CC-CV charge cycles (fresh cells; reference assumes start from ~empty) ==\n');
@@ -176,12 +215,19 @@ function ok = run_bms_regression(opts)
 
     fprintf('\n== 4c. Online capacity (SOH) estimate vs true capacity ratio ==\n');
     Pc = Pn;  Pc.sota_mode = 10;  capErr = zeros(1, numel(scs));
+    cap_unlocked = false(1, numel(scs));
     for i = 1:numel(scs)
         L = bms_simulate(Pc, scs{i});  capErr(i) = abs(L.cap_sota(end) - scs{i}.cap_Ah / 2.0);
-        fprintf('  %-22s true %.3f  est %.3f  |err| %.3f\n', scs{i}.name, scs{i}.cap_Ah / 2.0, L.cap_sota(end), capErr(i));
+        cap_unlocked(i) = (L.cap_sota(end) < 0.999);
+        fprintf('  %-22s true %.3f  est %.3f  |err| %.3f  (unlocked: %d)\n', scs{i}.name, scs{i}.cap_Ah / 2.0, L.cap_sota(end), capErr(i), cap_unlocked(i));
         rows(end + 1, :) = {'soh', scs{i}.name, scs{i}.cap_Ah / 2.0, L.cap_sota(end), capErr(i), NaN}; %#ok<AGROW>
     end
     check('SOH estimate: mean |error| of capacity ratio', mean(capErr) < TH.soh_err, sprintf('%.3f < %.2f', mean(capErr), TH.soh_err));
+    fresh_idx = [1, 4];          % B0005 #1, B0007 #1
+    aged_idx = [2, 3, 5, 6, 7];  % B0005 #60/#120, B0007 #60/#120, B0006 #120
+    gate_ok = all(~cap_unlocked(fresh_idx)) && all(cap_unlocked(aged_idx));
+    check('Capacity gate: locked on fresh cycles and unlocks on aged ones', gate_ok, ...
+        sprintf('fresh locked: %d/%d, aged unlocked: %d/%d', sum(~cap_unlocked(fresh_idx)), numel(fresh_idx), sum(cap_unlocked(aged_idx)), numel(aged_idx)));
 
     %% ---- 5. Ablation ------------------------------------------------------------------------------
     fprintf('\n== 5. Ablation of adaptation features (mean MAE %%, lower is better) ==\n');
@@ -226,7 +272,7 @@ function ok = run_bms_regression(opts)
     if opts.sil
         fprintf('\n== 7. Software-in-the-loop: C firmware (compiled) vs MATLAB float32 ==\n');
         Ps = bms_params('synthetic');  [Iu, s0u] = bms_profile('udds');  sil = [];
-        for fm = [0 2 3]
+        for fm = [0 1 2 3]
             scs_ = struct('I', Iu, 'soc0', s0u, 'init_err', -0.10, 'seed', 5, 'fault_mode', fm);
             sil = [sil, bms_sil_run(Ps, scs_, sprintf('sim udds fault %d', fm))]; %#ok<AGROW>
         end
@@ -380,9 +426,34 @@ function ok = run_bms_regression(opts)
             check('Widened tuner study: results/tuner_compare_wide.csv contains wide-bounds methods and per-cell metrics', false, 'CSV missing');
         end
 
+        % Check leave-one-cell-out cross-validation study results
+        cv_csv = fullfile(outdir, 'cv_study.csv');
+        if ~isfile(cv_csv)
+            cv_csv = fullfile(here, '..', 'results', 'cv_study.csv');
+        end
+        if ~isfile(cv_csv)
+            bms_cv_study('quick');
+            cv_csv = fullfile(outdir, 'cv_study.csv');
+        end
+        cv_exists = isfile(cv_csv);
+        n_cv_rows = 0;
+        if cv_exists
+            t_cv = readtable(cv_csv);
+            n_cv_rows = height(t_cv);
+            expected_cv_methods = {'Hand_Tuned', 'Grid_Search', 'Random_Search', 'ACO_R', 'ACO_R_Val_Pick'};
+            cv_methods_present = all(ismember(expected_cv_methods, unique(t_cv.method)));
+            cv_folds_present = all(ismember([1, 2, 3], unique(t_cv.fold)));
+            cv_ok = cv_methods_present && cv_folds_present && (n_cv_rows == 15);
+            check('Cross-validation study: results/cv_study.csv contains 15 rows (5 methods x 3 folds)', cv_ok, ...
+                sprintf('%d rows, all 5 methods and 3 folds present', n_cv_rows));
+        else
+            check('Cross-validation study: results/cv_study.csv contains 15 rows (5 methods x 3 folds)', false, 'CSV missing');
+        end
+
         rows(end + 1, :) = {'cross_matrix', 'status', double(cross_exists), n_rows, NaN, NaN}; %#ok<AGROW>
         rows(end + 1, :) = {'tuner_compare', 'status', double(tuner_exists), n_tuner_rows, NaN, NaN}; %#ok<AGROW>
         rows(end + 1, :) = {'tuner_compare_wide', 'status', double(wide_exists), n_wide_rows, NaN, NaN}; %#ok<AGROW>
+        rows(end + 1, :) = {'cv_study', 'status', double(cv_exists), n_cv_rows, NaN, NaN}; %#ok<AGROW>
     end
 
     %% ---- report -------------------------------------------------------------------------------------

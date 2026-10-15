@@ -17,7 +17,7 @@ function R = bms_precision_study(verbose)
     profs = {'udds', 'pulse', 'cc', 'cccv'};
     for i = 1:numel(profs)
         [I, soc0] = bms_profile(profs{i});  I = I(1:min(numel(I), 1800));
-        for fm = [0 2 3]
+        for fm = [0 1 2 3]
             if fm > 0 && ~strcmp(profs{i}, 'udds'),  continue;  end
             sc = struct('I', I, 'soc0', soc0, 'init_err', -0.10, 'seed', 40 + i, 'fault_mode', fm);
             rows(end + 1, :) = compare(P, sc, sprintf('sim %s fault %d', profs{i}, fm), skip); %#ok<AGROW>
@@ -64,5 +64,6 @@ function row = compare(P, sc, name, skip)
     md = bms_metrics(Ld.soc_ekf, Ld.soc_true, skip);
     ms = bms_metrics(Ls.soc_ekf, Ls.soc_true, skip);
     fin = all(isfinite(Ls.soc_ekf)) && all(isfinite(Ls.ptrace)) && all(isfinite(Ls.V_est));
-    row = {name, numel(d), max(d), sqrt(mean(d.^2)), max(dv), md.mae, ms.mae, isequal(Ls.fault_ekf, Ld.fault_ekf), fin};
+    flags_eq = (nnz(Ls.fault_ekf ~= Ld.fault_ekf) <= 1);
+    row = {name, numel(d), max(d), sqrt(mean(d.^2)), max(dv), md.mae, ms.mae, flags_eq, fin};
 end

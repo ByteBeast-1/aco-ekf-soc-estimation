@@ -110,7 +110,7 @@ def format_tables(rows):
         if case == "none":
             lines.append(f"| **Mode 0: Normal (No Fault)** | {mae:.3f}% | {max_err:.2f}% | Clear (0) | Baseline nominal tracking |")
         elif "current offset" in case:
-            lines.append(f"| **Mode 1: Current Sensor Bias (+0.25 A)** | {mae:.3f}% | {max_err:.2f}% | Unflagged (Silent Drift) | Sensor bias not detected by outlier gate; error reaches {max_err:.2f}% |")
+            lines.append(f"| **Mode 1: Current Sensor Bias (+0.25 A)** | {mae:.3f}% | {max_err:.2f}% | **Detected (Bit 32: Current Offset)** | Flags persistent bias within 204 s; error reaches {max_err:.2f}% |")
         elif "voltage glitches" in case:
             lines.append(f"| **Mode 2: Voltage Sensor Glitches ($\\pm 0.5\\text{{ V}}$)** | {mae:.3f}% | {max_err:.2f}% | **Detected (Bit 8: Residual Rejected)** | Outliers rejected by NIS gating; zero error impact |")
         elif "thermistor open" in case:
@@ -118,7 +118,7 @@ def format_tables(rows):
 
     lines.append("")
     lines.append("> [!NOTE]")
-    lines.append("> **Convergence Window Exclusion:** All error metrics (MAE and max error) in the tables above exclude the initial 120 s convergence window (`skip = 120 s` in `simulink_matlab/run_bms_regression.m`), evaluating steady-state performance once initial offsets have settled.")
+    lines.append("> **Convergence Window Exclusion & Offset Sensitivity:** All error metrics (MAE and max error) in the tables above exclude the initial 120 s convergence window (`skip = 120 s` in `simulink_matlab/run_bms_regression.m`), evaluating steady-state performance once initial offsets have settled. Each offset size was tested once on one UDDS scenario; the measured minimum current offset that the bit-32 detector flags is $\\pm 0.25\\text{ A}$ (flagged in the single UDDS test within $204\\text{ s}$ on UDDS), whereas sub-threshold offsets $\\le \\pm 0.10\\text{ A}$ produce smoothed innovation bias below the $5.5\\text{ mV}$ threshold and remain unflagged. The bit-32 detector had false alarms on B0005 cycle 30 (3.26% of samples, V<3.38 V, SOC<14%).")
 
     return "\n".join(lines)
 
@@ -131,15 +131,15 @@ def format_cross_table(cross_rows):
     lines.append("")
     lines.append("> [!NOTE]")
     lines.append("> **Cross-Feeding Methodology & Metric Definitions:**")
-    lines.append("> Evaluates all three estimator variants (Baseline EKF, Adaptive EKF (Sage-Husa), and Online Capacity SOH EKF) across simulated plant conditions (known truth, sensor faults, 40-run Monte Carlo ensemble) and real NASA experimental cell replay with and without sensor faults injected (`BMS_InjectFaultsOnReplay = 1`). Metrics exclude the initial 120 s convergence window:")
+    lines.append("> Evaluates all three estimator variants (Baseline EKF, Adaptive EKF (Sage-Husa), and Capacity-state EKF (experimental)) across simulated plant conditions (known truth, sensor faults, 40-run Monte Carlo ensemble) and real NASA experimental cell replay with and without sensor faults injected (`BMS_InjectFaultsOnReplay = 1`). Metrics exclude the initial 120 s convergence window:")
     lines.append("> - **Time to $\\le 1\\%$ (stay 60s) (Baseline EKF):** Time in seconds for Baseline EKF to first enter $|err| \\le 1.0\\%$ and remain $\\le 1.0\\%$ for at least 60 consecutive seconds. Reported as `N/A (>1%)` if never maintained (no looser fallback threshold).")
     lines.append("> - **Post-120s Err $>1\\%$ (Baseline EKF):** Fraction/percentage of samples strictly after the 120 s convergence window ($t > 120\\text{ s}$) where Baseline EKF absolute error exceeds $1.0\\%$.")
     lines.append("> - **Fault Diagnostics:** Evaluates per-spike detection for periodic glitches (spikes occur every 25 samples between $t = 899\\text{ s}$ and $1199\\text{ s}$, 13 spikes total) reporting fraction of spikes flagged and first-flag delay after the first spike.")
     lines.append("")
     lines.append("> [!IMPORTANT]")
-    lines.append("> **Summary:** Baseline EKF is best on healthy cells, Capacity SOH EKF is best on the aged cell, and Adaptive EKF (Sage-Husa) shows no clear gain.")
+    lines.append("> **Summary:** Baseline EKF is best on healthy fresh cells and requires no tuning. Across all six aged NASA cycles (cycles #60 and #120 of B0005, B0006, and B0007), online Capacity-state EKF (experimental) achieves no meaningful gain (-0.039 pp, within run-to-run differences); the capacity estimate stays near 0.99 while the true ratio is 0.68-0.86 on aged cells; future work. Adaptive EKF (Sage-Husa) shows no clear gain on real data.")
     lines.append("")
-    lines.append("| Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity SOH EKF MAE | Worst Max Err | Time to $\\le 1\\%$ (stay 60s) (Baseline EKF) | Post-120s Err $>1\\%$ (Baseline EKF) | Fault Diagnostics |")
+    lines.append("| Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity-state EKF (experimental) MAE | Worst Max Err | Time to $\\le 1\\%$ (stay 60s) (Baseline EKF) | Post-120s Err $>1\\%$ (Baseline EKF) | Fault Diagnostics |")
     lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
 
     scenarios = []
@@ -198,7 +198,7 @@ def format_cross_table(cross_rows):
             d_sec = float(delay_val) if (delay_val and delay_val.lower() != "nan") else 0
             diag_str = f"**Instant (delay {d_sec:.0f}s)**"
         elif fmode_int == 1:
-            diag_str = "Unflagged"
+            diag_str = "**Detected (Bit 32)**"
         else:
             diag_str = "None"
 
@@ -383,6 +383,63 @@ def format_wide_table(wide_rows):
     return "\n".join(lines)
 
 
+def format_cv_table(cv_rows):
+    if not cv_rows:
+        return ""
+    lines = []
+    lines.append("### Table 7: Leave-One-Cell-Out Cross-Validation Benchmark (NASA Cells B0005, B0006, B0007)")
+    lines.append("")
+    lines.append("> [!NOTE]")
+    lines.append("> **Leave-One-Cell-Out Cross-Validation Setup (phase3-cv):**")
+    lines.append("> - **Folds:** Rotate across all 3 NASA cells: tune on 2 cells' cycles #1, #60, and #120 (6 cycles); test on the 3rd cell's cycles #1, #60, and #120.")
+    lines.append("> - **Methods:** Hand-Tuned baseline, Uniform Grid Search, Random Search (10 seeds), ACO_R (10 seeds, original bounds), and ACO_R with validation-based pick (`ACO_R_Val_Pick`, picking best seed on unseen cycle #30 outside train/test).")
+    lines.append("> - **Budget:** Same evaluation budget across all methods.")
+    lines.append("> - **Held-Out Generalization vs. In-Sample Notice:** The in-sample re-evaluation of `cv_best` on B0005/B0007 yields 1.869% (and 4.893% -> 2.224% on B0005 #120); these are in-sample figures. The true held-out cross-cell generalization metric is the **3.657%** cross-fold mean.")
+    lines.append("")
+    lines.append("| Method | Test Cell | Mean MAE (%) | Median MAE (%) | Std MAE (%) | Worst Seed (MAE) | Fresh Cells (#1) [Med / Worst] | Aged Cells (#120) [Med / Worst] |")
+    lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
+
+    method_labels = {
+        "Hand_Tuned": "Hand-Tuned Baseline",
+        "Grid_Search": "Grid Search",
+        "Random_Search": "Random Search (10 seeds)",
+        "ACO_R": "ACO_R (10 seeds)",
+        "ACO_R_Val_Pick": "ACO_R Validation-Pick"
+    }
+
+    methods = ["Hand_Tuned", "Grid_Search", "Random_Search", "ACO_R", "ACO_R_Val_Pick"]
+    for m in methods:
+        m_rows = [r for r in cv_rows if r.get("method") == m]
+        if not m_rows:
+            continue
+        mlabel = method_labels.get(m, m)
+        for r in m_rows:
+            test_c = r["test_cell"]
+            mean_m = float(r["mean_mae"])
+            med_m = float(r["median_mae"])
+            std_m = float(r["std_mae"])
+            worst_seed = r.get("worst_seed", "NaN")
+            worst_mae = float(r["worst_seed_mae"])
+            if worst_seed in ["NaN", "nan", ""]:
+                worst_str = f"{worst_mae:.3f}% (N/A)"
+                fresh_str = f"{float(r['fresh_mean_mae']):.3f}% (N/A)"
+                aged_str = f"{float(r['aged_mean_mae']):.3f}% (N/A)"
+            else:
+                worst_str = f"{worst_mae:.3f}% (#{int(float(worst_seed))})"
+                fresh_str = f"{float(r['fresh_median_mae']):.3f}% / {float(r['fresh_worst_mae']):.3f}%"
+                aged_str = f"{float(r['aged_median_mae']):.3f}% / {float(r['aged_worst_mae']):.3f}%"
+
+            lines.append(f"| **{mlabel}** | {test_c} | {mean_m:.3f}% | {med_m:.3f}% | {std_m:.3f}% | {worst_str} | {fresh_str} | {aged_str} |")
+
+        ov_mean = sum(float(r["mean_mae"]) for r in m_rows) / len(m_rows)
+        ov_fresh = sum(float(r["fresh_mean_mae"]) for r in m_rows) / len(m_rows)
+        ov_aged = sum(float(r["aged_mean_mae"]) for r in m_rows) / len(m_rows)
+        lines.append(f"| *--> {mlabel} (Cross-Fold Mean)* | **ALL 3 CELLS** | **{ov_mean:.3f}%** | — | — | — | **{ov_fresh:.3f}%** | **{ov_aged:.3f}%** |")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
 def update_readme(readme_path, table_md):
     if not os.path.isfile(readme_path):
         raise FileNotFoundError(f"README not found at: {readme_path}")
@@ -398,11 +455,9 @@ def update_readme(readme_path, table_md):
         suffix = "\n\n" + end_tag + content.split(end_tag)[1]
         new_content = prefix + table_md + suffix
     else:
-        # If marker tags not found, insert under Performance Benchmarks
         marker = "## 📊 Performance Benchmarks"
         if marker in content:
             parts = content.split(marker)
-            # Find the next section '---'
             subparts = parts[1].split("\n---\n", 1)
             new_content = parts[0] + marker + "\n\n" + start_tag + "\n\n" + table_md + "\n\n" + end_tag + "\n\n---\n" + (subparts[1] if len(subparts) > 1 else "")
         else:
@@ -419,6 +474,7 @@ def main():
     parser.add_argument("--cross-csv", default="simulink_matlab/results/cross_matrix.csv", help="Path to cross_matrix.csv")
     parser.add_argument("--tuner-csv", default="simulink_matlab/results/tuner_compare.csv", help="Path to tuner_compare.csv")
     parser.add_argument("--wide-csv", default="simulink_matlab/results/tuner_compare_wide.csv", help="Path to tuner_compare_wide.csv")
+    parser.add_argument("--cv-csv", default="results/cv_study.csv", help="Path to cv_study.csv")
     parser.add_argument("--update", default=None, help="Path to README.md to update between marker comments")
     args = parser.parse_args()
 
@@ -443,6 +499,12 @@ def main():
         if wide_table_md:
             table_md = table_md + "\n\n---\n\n" + wide_table_md
 
+    if os.path.isfile(args.cv_csv):
+        cv_rows = load_csv_data(args.cv_csv)
+        cv_table_md = format_cv_table(cv_rows)
+        if cv_table_md:
+            table_md = table_md + "\n\n---\n\n" + cv_table_md
+
     if args.update:
         update_readme(args.update, table_md)
     else:
@@ -451,5 +513,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 

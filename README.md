@@ -5,7 +5,7 @@
 [![MATLAB R2024b](https://img.shields.io/badge/MATLAB-R2024b-orange.svg)](simulink_matlab/)
 [![Simulink Models](https://img.shields.io/badge/Simulink-MBD-red.svg)](simulink_matlab/)
 [![Embedded C](https://img.shields.io/badge/C99-gcc%20--Wall%20--Wextra%20--Wconversion%20clean-brightgreen.svg)](c_firmware/)
-[![Regression Suite](https://img.shields.io/badge/Regression-33%2F33%20PASS-brightgreen.svg)](simulink_matlab/results/baseline_regression_20261013.txt)
+[![Regression Suite](https://img.shields.io/badge/Regression-54%2F54%20PASS-brightgreen.svg)](simulink_matlab/results/bms_regression_results.csv)
 
 A model-based design, automotive-style, multi-platform engineering implementation of the **Thermal-Adaptive 2-RC Multi-Objective Ant Colony Optimized Extended Kalman Filter (MO-ACO-EKF)** for Lithium-Ion Battery State-of-Charge (SOC) and State-of-Health (SOH) estimation.
 
@@ -16,7 +16,7 @@ Extends the foundational research of:
 
 ## 🌟 4 Key Engineering Novelties
 
-1. **Arrhenius Thermal-Adaptive 2-RC Physics ($T$-2RC):** Dynamic parameter tracking $R_0(T), R_1(T), R_2(T)$ solving the IEEE basepaper's fixed-temperature limitation. *(Note: The Python research pipeline uses a 3-state vector $\mathbf{x} = [\text{SOC}, V_1, V_2]^T$; the MATLAB/Simulink MBD suite uses an extended 4-state formulation $\mathbf{x} = [\text{SOC}, V_1, V_2, \text{CapacityRatio}]^T$ with an optional online capacity state).*
+1. **Arrhenius Thermal-Adaptive 2-RC Physics ($T$-2RC):** Dynamic parameter tracking $R_0(T), R_1(T), R_2(T)$ adds temperature-dependent resistance parameters. *(Note: The Python research pipeline uses a 3-state vector $\mathbf{x} = [\text{SOC}, V_1, V_2]^T$; the MATLAB/Simulink MBD suite uses an extended 4-state formulation $\mathbf{x} = [\text{SOC}, V_1, V_2, \text{CapacityRatio}]^T$ with an optional online capacity state).*
 2. **Multi-Objective Ant Colony Optimization (MO-ACOR):** Dual-objective continuous AI swarm optimization in log-space minimizing both steady-state tracking error (MSE) and initial offset convergence time.
 3. **Joseph-Form 32-Bit ANSI C Firmware:** Zero-malloc, statically bounded C99 code (`<250 bytes` RAM state) verified clean under `gcc -Wall -Wextra -Wconversion -pedantic` and matching MATLAB via Software-in-the-Loop (SIL) within $0.00058\%$ SOC discrepancy.
 4. **Model-Based Design (MBD) Architecture:** Complete 3-subsystem visual block diagram (`Battery_Physics_Plant`, `Sensor_Measurement`, and `ACO_EKF_Controller`) coupled via typed bus objects in `bms_data.sldd`.
@@ -50,12 +50,12 @@ aco-ekf-soc-estimation/
 │
 ├── simulink_matlab/                 # MATLAB & Simulink MBD models (see docs/Simulink_Upgrade.md)
 │   ├── advanced_bms_aco_ekf.slx     #   MAIN MODEL: simulated plant + faultable sensors + ACO-tuned EKF
-│   ├── sota_bms_aco_ekf.slx         #   REAL NASA REPLAY: EKF vs Adaptive EKF vs SOH capacity state
+│   ├── sota_bms_aco_ekf.slx         #   REAL NASA REPLAY: EKF vs Adaptive EKF vs Capacity-state EKF (experimental)
 │   ├── animate_bms_live.m           #   Live high-contrast animation dashboard
 │   ├── lib/                         #   Shared algorithm library (plant, sensors, EKF, ACO tuner, NASA loader)
 │   ├── build_bms_models.m           #   Programmatically regenerates both models from lib/
 │   ├── run_simulink.m, run_sota_simulink.m
-│   ├── run_bms_regression.m         #   33-check automated verification suite
+│   ├── run_bms_regression.m         #   54-check automated verification suite
 │   └── results/                     #   Regression CSV, baseline logs, block-diagram snapshots
 │
 ├── c_firmware/                      # Embedded ANSI C firmware (<250 B RAM)
@@ -119,12 +119,12 @@ aco-ekf-soc-estimation/
 | Injected Fault Mode ($t=900\text{--}1200\text{ s}$) | Filter MAE (%) | Max Error (%) | Diagnostic Flag Status | Safety Behavior |
 | :--- | :---: | :---: | :---: | :--- |
 | **Mode 0: Normal (No Fault)** | 0.146% | 0.40% | Clear (0) | Baseline nominal tracking |
-| **Mode 1: Current Sensor Bias (+0.25 A)** | 0.371% | 0.75% | Unflagged (Silent Drift) | Sensor bias not detected by outlier gate; error reaches 0.75% |
+| **Mode 1: Current Sensor Bias (+0.25 A)** | 0.371% | 0.75% | **Detected (Bit 32: Current Offset)** | Flags persistent bias within 204 s; error reaches 0.75% |
 | **Mode 2: Voltage Sensor Glitches ($\pm 0.5\text{ V}$)** | 0.144% | 0.40% | **Detected (Bit 8: Residual Rejected)** | Outliers rejected by NIS gating; zero error impact |
 | **Mode 3: Thermistor Disconnect (Open Circuit)** | 0.147% | 0.40% | **Detected (Bit 2: Temp Out of Range)** | Holds last good temperature (`T = st.T_last`) |
 
 > [!NOTE]
-> **Convergence Window Exclusion:** All error metrics (MAE and max error) in the tables above exclude the initial 120 s convergence window (`skip = 120 s` in `simulink_matlab/run_bms_regression.m`), evaluating steady-state performance once initial offsets have settled.
+> **Convergence Window Exclusion & Offset Sensitivity:** All error metrics (MAE and max error) in the tables above exclude the initial 120 s convergence window (`skip = 120 s` in `simulink_matlab/run_bms_regression.m`), evaluating steady-state performance once initial offsets have settled. Each offset size was tested once on one UDDS scenario; the measured minimum current offset that the bit-32 detector flags is $\pm 0.25\text{ A}$ (flagged in the single UDDS test within $204\text{ s}$ on UDDS), whereas sub-threshold offsets $\le \pm 0.10\text{ A}$ produce smoothed innovation bias below the $5.5\text{ mV}$ threshold and remain unflagged. The bit-32 detector had false alarms on B0005 cycle 30 (3.26% of samples, V<3.38 V, SOC<14%).
 
 ---
 
@@ -132,28 +132,28 @@ aco-ekf-soc-estimation/
 
 > [!NOTE]
 > **Cross-Feeding Methodology & Metric Definitions:**
-> Evaluates all three estimator variants (Baseline EKF, Adaptive EKF (Sage-Husa), and Online Capacity SOH EKF) across simulated plant conditions (known truth, sensor faults, 40-run Monte Carlo ensemble) and real NASA experimental cell replay with and without sensor faults injected (`BMS_InjectFaultsOnReplay = 1`). Metrics exclude the initial 120 s convergence window:
+> Evaluates all three estimator variants (Baseline EKF, Adaptive EKF (Sage-Husa), and Capacity-state EKF (experimental)) across simulated plant conditions (known truth, sensor faults, 40-run Monte Carlo ensemble) and real NASA experimental cell replay with and without sensor faults injected (`BMS_InjectFaultsOnReplay = 1`). Metrics exclude the initial 120 s convergence window:
 > - **Time to $\le 1\%$ (stay 60s) (Baseline EKF):** Time in seconds for Baseline EKF to first enter $|err| \le 1.0\%$ and remain $\le 1.0\%$ for at least 60 consecutive seconds. Reported as `N/A (>1%)` if never maintained (no looser fallback threshold).
 > - **Post-120s Err $>1\%$ (Baseline EKF):** Fraction/percentage of samples strictly after the 120 s convergence window ($t > 120\text{ s}$) where Baseline EKF absolute error exceeds $1.0\%$.
 > - **Fault Diagnostics:** Evaluates per-spike detection for periodic glitches (spikes occur every 25 samples between $t = 899\text{ s}$ and $1199\text{ s}$, 13 spikes total) reporting fraction of spikes flagged and first-flag delay after the first spike.
 
 > [!IMPORTANT]
-> **Summary:** Baseline EKF is best on healthy cells, Capacity SOH EKF is best on the aged cell, and Adaptive EKF (Sage-Husa) shows no clear gain.
+> **Summary:** Baseline EKF is best on healthy fresh cells and requires no tuning. Across all six aged NASA cycles (cycles #60 and #120 of B0005, B0006, and B0007), online Capacity-state EKF (experimental) achieves no meaningful gain (-0.039 pp, within run-to-run differences); the capacity estimate stays near 0.99 while the true ratio is 0.68-0.86 on aged cells; future work. Adaptive EKF (Sage-Husa) shows no clear gain on real data.
 
-| Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity SOH EKF MAE | Worst Max Err | Time to $\le 1\%$ (stay 60s) (Baseline EKF) | Post-120s Err $>1\%$ (Baseline EKF) | Fault Diagnostics |
+| Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity-state EKF (experimental) MAE | Worst Max Err | Time to $\le 1\%$ (stay 60s) (Baseline EKF) | Post-120s Err $>1\%$ (Baseline EKF) | Fault Diagnostics |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **sim_clean_udds** | `synthetic` | Mode 0 | 0.163% | 0.166% | 0.287% | 0.73% | 2 s | 0.0% | None |
-| **sim_pulse** | `synthetic` | Mode 0 | 0.112% | 0.114% | 0.275% | 0.70% | 2 s | 0.0% | None |
-| **sim_fault1_I_offset** | `synthetic` | Mode 1 | 0.387% | 0.364% | 0.203% | 0.74% | 2 s | 0.0% | Unflagged |
-| **sim_fault2_V_spike** | `synthetic` | Mode 2 | 0.162% | 0.166% | 0.286% | 0.73% | 2 s | 0.0% | **100% spikes (delay 0s)** |
-| **sim_fault3_T_open** | `synthetic` | Mode 3 | 0.160% | 0.163% | 0.281% | 0.73% | 2 s | 0.0% | **Instant (delay 0s)** |
-| **sim_monte_carlo** | `synthetic` | Mode 0 | 0.169% | 0.180% | 0.304% | 1.16% | 24 s | 0.0% | None |
-| **nasa_B0005_clean** | `nasa` | Mode 0 | 0.664% | 0.721% | 1.162% | 2.87% | 689 s | 17.7% | None |
-| **nasa_B0005_fault1** | `nasa` | Mode 1 | 0.644% | 0.771% | 1.270% | 2.91% | 689 s | 20.8% | Unflagged |
-| **nasa_B0005_fault2** | `nasa` | Mode 2 | 0.664% | 0.721% | 1.162% | 2.87% | 689 s | 17.7% | **100% spikes (delay 0s)** |
-| **nasa_B0005_fault3** | `nasa` | Mode 3 | 0.669% | 0.722% | 1.137% | 2.85% | 689 s | 17.7% | **Instant (delay 0s)** |
-| **nasa_B0007_clean** | `nasa` | Mode 0 | 0.929% | 1.110% | 1.693% | 4.34% | 460 s | 26.1% | None |
-| **nasa_B0005_aged_120** | `nasa` | Mode 0 | 4.893% | 4.714% | 3.089% | 9.44% | 282 s | 85.2% | None |
+| **sim_clean_udds** | `synthetic` | Mode 0 | 0.163% | 0.166% | 0.163% | 0.71% | 2 s | 0.0% | None |
+| **sim_pulse** | `synthetic` | Mode 0 | 0.112% | 0.114% | 0.112% | 0.70% | 2 s | 0.0% | None |
+| **sim_fault1_I_offset** | `synthetic` | Mode 1 | 0.387% | 0.364% | 0.387% | 0.74% | 2 s | 0.0% | **Detected (Bit 32)** |
+| **sim_fault2_V_spike** | `synthetic` | Mode 2 | 0.162% | 0.166% | 0.162% | 0.71% | 2 s | 0.0% | **100% spikes (delay 0s)** |
+| **sim_fault3_T_open** | `synthetic` | Mode 3 | 0.160% | 0.163% | 0.160% | 0.71% | 2 s | 0.0% | **Instant (delay 0s)** |
+| **sim_monte_carlo** | `synthetic` | Mode 0 | 0.169% | 0.180% | 0.169% | 1.16% | 24 s | 0.0% | None |
+| **nasa_B0005_clean** | `nasa` | Mode 0 | 0.664% | 0.721% | 0.664% | 2.49% | 689 s | 17.7% | None |
+| **nasa_B0005_fault1** | `nasa` | Mode 1 | 0.644% | 0.771% | 0.644% | 2.49% | 689 s | 20.8% | **Detected (Bit 32)** |
+| **nasa_B0005_fault2** | `nasa` | Mode 2 | 0.664% | 0.721% | 0.664% | 2.49% | 689 s | 17.7% | **100% spikes (delay 0s)** |
+| **nasa_B0005_fault3** | `nasa` | Mode 3 | 0.669% | 0.722% | 0.669% | 2.49% | 689 s | 17.7% | **Instant (delay 0s)** |
+| **nasa_B0007_clean** | `nasa` | Mode 0 | 0.929% | 1.110% | 0.929% | 2.57% | 460 s | 26.1% | None |
+| **nasa_B0005_aged_120** | `nasa` | Mode 0 | 4.893% | 4.714% | 4.712% | 9.44% | 282 s | 85.2% | None |
 
 
 ---
@@ -200,6 +200,41 @@ aco-ekf-soc-estimation/
 | **Random Uniform Search** | Real NASA | 10 | 8.03e-04 | 4.677% ± 4.181% [1.812%, 15.463%] | 3.87% | 4.50% | 10.0% (4/40 params) |
 
 
+---
+
+### Table 7: Leave-One-Cell-Out Cross-Validation Benchmark (NASA Cells B0005, B0006, B0007)
+
+> [!NOTE]
+> **Leave-One-Cell-Out Cross-Validation Setup (phase3-cv):**
+> - **Folds:** Rotate across all 3 NASA cells: tune on 2 cells' cycles #1, #60, and #120 (6 cycles); test on the 3rd cell's cycles #1, #60, and #120.
+> - **Methods:** Hand-Tuned baseline, Uniform Grid Search, Random Search (10 seeds), ACO_R (10 seeds, original bounds), and ACO_R with validation-based pick (`ACO_R_Val_Pick`, picking best seed on unseen cycle #30 outside train/test).
+> - **Budget:** Same evaluation budget across all methods.
+> - **Held-Out Generalization vs. In-Sample Notice:** The in-sample re-evaluation of `cv_best` on B0005/B0007 yields 1.869% (and 4.893% -> 2.224% on B0005 #120); these are in-sample figures. The true held-out cross-cell generalization metric is the **3.657%** cross-fold mean.
+
+| Method | Test Cell | Mean MAE (%) | Median MAE (%) | Std MAE (%) | Worst Seed (MAE) | Fresh Cells (#1) [Med / Worst] | Aged Cells (#120) [Med / Worst] |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Hand-Tuned Baseline** | B0005 | 4.892% | 4.892% | 0.000% | 4.892% (N/A) | 3.552% (N/A) | 8.400% (N/A) |
+| **Hand-Tuned Baseline** | B0006 | 11.435% | 11.435% | 0.000% | 11.435% (N/A) | 4.827% (N/A) | 19.706% (N/A) |
+| **Hand-Tuned Baseline** | B0007 | 4.473% | 4.473% | 0.000% | 4.473% (N/A) | 3.654% (N/A) | 6.578% (N/A) |
+| *--> Hand-Tuned Baseline (Cross-Fold Mean)* | **ALL 3 CELLS** | **6.933%** | — | — | — | **4.011%** | **11.562%** |
+| **Grid Search** | B0005 | 3.061% | 3.061% | 0.000% | 3.061% (N/A) | 0.828% (N/A) | 4.894% (N/A) |
+| **Grid Search** | B0006 | 6.757% | 6.757% | 0.000% | 6.757% (N/A) | 3.879% (N/A) | 11.999% (N/A) |
+| **Grid Search** | B0007 | 2.482% | 2.482% | 0.000% | 2.482% (N/A) | 1.207% (N/A) | 3.704% (N/A) |
+| *--> Grid Search (Cross-Fold Mean)* | **ALL 3 CELLS** | **4.100%** | — | — | — | **1.971%** | **6.866%** |
+| **Random Search (10 seeds)** | B0005 | 2.763% | 2.839% | 0.324% | 3.199% (#79) | 1.290% / 1.821% | 4.181% / 5.433% |
+| **Random Search (10 seeds)** | B0006 | 6.727% | 6.713% | 0.895% | 8.062% (#9999) | 4.234% / 4.403% | 11.135% / 14.545% |
+| **Random Search (10 seeds)** | B0007 | 2.340% | 2.442% | 0.189% | 2.508% (#53) | 2.444% / 2.577% | 3.049% / 3.320% |
+| *--> Random Search (10 seeds) (Cross-Fold Mean)* | **ALL 3 CELLS** | **3.943%** | — | — | — | **2.611%** | **6.198%** |
+| **ACO_R (10 seeds)** | B0005 | 2.602% | 2.522% | 0.250% | 3.124% (#2024) | 0.975% / 1.673% | 3.981% / 4.938% |
+| **ACO_R (10 seeds)** | B0006 | 7.362% | 7.561% | 0.502% | 7.850% (#79) | 3.848% / 4.444% | 13.999% / 14.646% |
+| **ACO_R (10 seeds)** | B0007 | 2.160% | 2.078% | 0.202% | 2.603% (#101) | 2.221% / 2.684% | 2.766% / 3.451% |
+| *--> ACO_R (10 seeds) (Cross-Fold Mean)* | **ALL 3 CELLS** | **4.041%** | — | — | — | **2.304%** | **6.756%** |
+| **ACO_R Validation-Pick** | B0005 | 2.611% | 2.611% | 0.000% | 2.611% (#101) | 0.627% / 0.627% | 4.043% / 4.043% |
+| **ACO_R Validation-Pick** | B0006 | 6.372% | 6.372% | 0.000% | 6.372% (#137) | 3.934% / 3.934% | 11.020% / 11.020% |
+| **ACO_R Validation-Pick** | B0007 | 1.987% | 1.987% | 0.000% | 1.987% (#13) | 2.364% / 2.364% | 2.273% / 2.273% |
+| *--> ACO_R Validation-Pick (Cross-Fold Mean)* | **ALL 3 CELLS** | **3.657%** | — | — | — | **2.308%** | **5.779%** |
+
+
 <!-- RESULTS_TABLE_END -->
 
 *(Note: The above tables are automatically populated from `simulink_matlab/results/bms_regression_results.csv` via `python tools/make_results_table.py --update README.md`.)*
@@ -222,7 +257,7 @@ cd simulink_matlab
 run_simulink('udds', 0)         % Simulated plant + EKF model (profile, fault mode, init error, seed)
 run_sota_simulink('B0005', 1)   % Replay real NASA discharge through Simulink model
 animate_bms_live                % Launch interactive real-time dashboard GUI
-run_bms_regression              % Run full 33-check automated test harness
+run_bms_regression              % Run full 54-check automated test harness
 build_bms_models                % Programmatically regenerate models from lib/
 ```
 
