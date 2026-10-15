@@ -118,7 +118,7 @@ def format_tables(rows):
 
     lines.append("")
     lines.append("> [!NOTE]")
-    lines.append("> **Convergence Window Exclusion & Offset Sensitivity:** All error metrics (MAE and max error) in the tables above exclude the initial 120 s convergence window (`skip = 120 s` in `simulink_matlab/run_bms_regression.m`), evaluating steady-state performance once initial offsets have settled. The measured minimum current offset that the bit-32 detector flags is $\\pm 0.25\\text{ A}$ (reliably flagged within $204\\text{ s}$ on UDDS), whereas sub-threshold offsets $\\le \\pm 0.10\\text{ A}$ produce smoothed innovation bias below the $5.5\\text{ mV}$ threshold and remain unflagged.")
+    lines.append("> **Convergence Window Exclusion & Offset Sensitivity:** All error metrics (MAE and max error) in the tables above exclude the initial 120 s convergence window (`skip = 120 s` in `simulink_matlab/run_bms_regression.m`), evaluating steady-state performance once initial offsets have settled. Each offset size was tested once on one UDDS scenario; the measured minimum current offset that the bit-32 detector flags is $\\pm 0.25\\text{ A}$ (flagged in the single UDDS test within $204\\text{ s}$ on UDDS), whereas sub-threshold offsets $\\le \\pm 0.10\\text{ A}$ produce smoothed innovation bias below the $5.5\\text{ mV}$ threshold and remain unflagged. The bit-32 detector had false alarms on B0005 cycle 30 (3.26% of samples, V<3.38 V, SOC<14%).")
 
     return "\n".join(lines)
 
@@ -131,15 +131,15 @@ def format_cross_table(cross_rows):
     lines.append("")
     lines.append("> [!NOTE]")
     lines.append("> **Cross-Feeding Methodology & Metric Definitions:**")
-    lines.append("> Evaluates all three estimator variants (Baseline EKF, Adaptive EKF (Sage-Husa), and Online Capacity SOH EKF) across simulated plant conditions (known truth, sensor faults, 40-run Monte Carlo ensemble) and real NASA experimental cell replay with and without sensor faults injected (`BMS_InjectFaultsOnReplay = 1`). Metrics exclude the initial 120 s convergence window:")
+    lines.append("> Evaluates all three estimator variants (Baseline EKF, Adaptive EKF (Sage-Husa), and Capacity-state EKF (experimental)) across simulated plant conditions (known truth, sensor faults, 40-run Monte Carlo ensemble) and real NASA experimental cell replay with and without sensor faults injected (`BMS_InjectFaultsOnReplay = 1`). Metrics exclude the initial 120 s convergence window:")
     lines.append("> - **Time to $\\le 1\\%$ (stay 60s) (Baseline EKF):** Time in seconds for Baseline EKF to first enter $|err| \\le 1.0\\%$ and remain $\\le 1.0\\%$ for at least 60 consecutive seconds. Reported as `N/A (>1%)` if never maintained (no looser fallback threshold).")
     lines.append("> - **Post-120s Err $>1\\%$ (Baseline EKF):** Fraction/percentage of samples strictly after the 120 s convergence window ($t > 120\\text{ s}$) where Baseline EKF absolute error exceeds $1.0\\%$.")
     lines.append("> - **Fault Diagnostics:** Evaluates per-spike detection for periodic glitches (spikes occur every 25 samples between $t = 899\\text{ s}$ and $1199\\text{ s}$, 13 spikes total) reporting fraction of spikes flagged and first-flag delay after the first spike.")
     lines.append("")
     lines.append("> [!IMPORTANT]")
-    lines.append("> **Summary:** Baseline EKF is best on healthy fresh cells and requires no tuning. Across all six aged NASA cycles (cycles #60 and #120 of B0005, B0006, and B0007), online Capacity SOH EKF achieves a mean MAE of 3.096% vs 3.136% for baseline EKF (-0.039 pp shift), showing that capacity adaptation provides only modest cell-dependent gains and does not consistently improve over baseline across all cells (e.g., slightly higher error on aged B0006). Adaptive EKF (Sage-Husa) shows no clear gain on real data.")
+    lines.append("> **Summary:** Baseline EKF is best on healthy fresh cells and requires no tuning. Across all six aged NASA cycles (cycles #60 and #120 of B0005, B0006, and B0007), online Capacity-state EKF (experimental) achieves no meaningful gain (-0.039 pp, within run-to-run differences); the capacity estimate stays near 0.99 while the true ratio is 0.68-0.86 on aged cells; future work. Adaptive EKF (Sage-Husa) shows no clear gain on real data.")
     lines.append("")
-    lines.append("| Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity SOH EKF MAE | Worst Max Err | Time to $\\le 1\\%$ (stay 60s) (Baseline EKF) | Post-120s Err $>1\\%$ (Baseline EKF) | Fault Diagnostics |")
+    lines.append("| Scenario Description | Data Source | Fault Mode | Baseline EKF MAE | Adaptive EKF MAE | Capacity-state EKF (experimental) MAE | Worst Max Err | Time to $\\le 1\\%$ (stay 60s) (Baseline EKF) | Post-120s Err $>1\\%$ (Baseline EKF) | Fault Diagnostics |")
     lines.append("| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |")
 
     scenarios = []
