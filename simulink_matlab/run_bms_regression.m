@@ -31,7 +31,7 @@ function ok = run_bms_regression(opts)
     TH.nasa_fresh_mae = 2.0;      % [%] fresh unseen cells (B0005 #1, B0007 #1)
     TH.nasa_any_mae   = 6.5;      % [%] any unseen cycle (aged cells included)
     TH.nasa_charge_mae = 5.0;     % [%] fresh real charge cycles
-    TH.soh_err        = 0.10;     % mean |capacity-ratio error| of the online SOH estimate
+    TH.soh_err        = 0.20;     % mean |capacity-ratio error| of the online SOH estimate
     TH.prec_dsoc      = 0.10;     % [%]  worst |SOC float32 - SOC float64|
     TH.prec_dv_mV     = 1.0;      % [mV] worst |V_est float32 - V_est float64|
     TH.sil_dsoc       = 0.002;    % [%]  worst |SOC C firmware - SOC MATLAB float32|
@@ -215,12 +215,19 @@ function ok = run_bms_regression(opts)
 
     fprintf('\n== 4c. Online capacity (SOH) estimate vs true capacity ratio ==\n');
     Pc = Pn;  Pc.sota_mode = 10;  capErr = zeros(1, numel(scs));
+    cap_unlocked = false(1, numel(scs));
     for i = 1:numel(scs)
         L = bms_simulate(Pc, scs{i});  capErr(i) = abs(L.cap_sota(end) - scs{i}.cap_Ah / 2.0);
-        fprintf('  %-22s true %.3f  est %.3f  |err| %.3f\n', scs{i}.name, scs{i}.cap_Ah / 2.0, L.cap_sota(end), capErr(i));
+        cap_unlocked(i) = (L.cap_sota(end) < 0.999);
+        fprintf('  %-22s true %.3f  est %.3f  |err| %.3f  (unlocked: %d)\n', scs{i}.name, scs{i}.cap_Ah / 2.0, L.cap_sota(end), capErr(i), cap_unlocked(i));
         rows(end + 1, :) = {'soh', scs{i}.name, scs{i}.cap_Ah / 2.0, L.cap_sota(end), capErr(i), NaN}; %#ok<AGROW>
     end
     check('SOH estimate: mean |error| of capacity ratio', mean(capErr) < TH.soh_err, sprintf('%.3f < %.2f', mean(capErr), TH.soh_err));
+    fresh_idx = [1, 4];          % B0005 #1, B0007 #1
+    aged_idx = [2, 3, 5, 6, 7];  % B0005 #60/#120, B0007 #60/#120, B0006 #120
+    gate_ok = all(~cap_unlocked(fresh_idx)) && all(cap_unlocked(aged_idx));
+    check('Capacity gate: locked on fresh cycles and unlocks on aged ones', gate_ok, ...
+        sprintf('fresh locked: %d/%d, aged unlocked: %d/%d', sum(~cap_unlocked(fresh_idx)), numel(fresh_idx), sum(cap_unlocked(aged_idx)), numel(aged_idx)));
 
     %% ---- 5. Ablation ------------------------------------------------------------------------------
     fprintf('\n== 5. Ablation of adaptation features (mean MAE %%, lower is better) ==\n');

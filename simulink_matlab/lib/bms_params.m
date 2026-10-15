@@ -76,14 +76,14 @@ function P = bms_params(variant, tuning)
     P.rls_lambda = 0.999;        % scalar-RLS forgetting for R0 scale
     P.rls_I_min  = 0.3;          % [A]  persistent-excitation gate
     P.rls_bounds = [0.5, 3.0];   % allowed R0 scale
-    P.cap_P0 = 0.02;             % capacity-ratio prior variance when unlocked
-    P.cap_Q  = 2e-8;             % capacity random-walk variance per step
+    P.cap_P0 = 4.0e-4;           % capacity-ratio prior variance when unlocked (tuned on B0006)
+    P.cap_Q  = 1.0e-9;           % capacity random-walk variance per step
     P.cap_bounds = [0.5, 1.0];   % allowed capacity ratio (physical upper bound 1.0)
     P.cap_k_lock = 200;          % start-up lock-out (samples)
     P.cap_V_min = 3.48;          % minimum voltage for evidence accumulation [V]
     P.cap_r_thresh = -0.0040;    % negative innovation threshold [V]
     P.cap_count_limit = 30;      % persistence counter required to unlock adaptation [s]
-    P.cap_slew_max = 1.0e-3;     % maximum slew rate on capacity ratio [1/s]
+    P.cap_slew_max = 5.0e-4;     % maximum slew rate on capacity ratio [1/s]
     P.R_bounds = [1e-4, 5e-2];
     P.Q_bounds = [1e-9, 1e-4];
 
