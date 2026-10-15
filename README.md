@@ -49,11 +49,13 @@ aco-ekf-soc-estimation/
 │   └── visualization.py
 │
 ├── simulink_matlab/                 # MATLAB & Simulink MBD models (see docs/Simulink_Upgrade.md)
-│   ├── advanced_bms_aco_ekf.slx     #   MAIN MODEL: simulated plant + faultable sensors + ACO-tuned EKF
-│   ├── sota_bms_aco_ekf.slx         #   REAL NASA REPLAY: EKF vs Adaptive EKF vs Capacity-state EKF (experimental)
+│   ├── bms_unified.slx              #   MAIN MODEL: simulated or real data via BMS_Source, three estimators
+│   ├── bms_estimator_ref.slx        #   Shared estimator (Model Reference core for bms_unified)
+│   ├── advanced_bms_aco_ekf.slx     #   Verification reference model: simulated plant + EKF
+│   ├── sota_bms_aco_ekf.slx         #   Verification reference model: real NASA replay (three estimators)
 │   ├── animate_bms_live.m           #   Live high-contrast animation dashboard
 │   ├── lib/                         #   Shared algorithm library (plant, sensors, EKF, ACO tuner, NASA loader)
-│   ├── build_bms_models.m           #   Programmatically regenerates both models from lib/
+│   ├── build_bms_models.m           #   Programmatically regenerates models from lib/
 │   ├── run_simulink.m, run_sota_simulink.m
 │   ├── run_bms_regression.m         #   54-check automated verification suite
 │   └── results/                     #   Regression CSV, baseline logs, block-diagram snapshots
