@@ -146,7 +146,7 @@ function [st, out] = bms_est_step(st, I, V, T, P, mode)
     if st.k > P.ibias_k0 && xu(1) >= P.ibias_soc_min && xu(1) <= 0.95
         if I >= 0.0
             st.innov_avg = (1.0 - P.ibias_alpha) * st.innov_avg + P.ibias_alpha * r;
-            if st.innov_avg > P.ibias_thresh
+            if abs(st.innov_avg) > P.ibias_thresh
                 st.ibias_cnt = st.ibias_cnt + 1.0;
             else
                 st.ibias_cnt = max(0.0, st.ibias_cnt - 1.0);

@@ -253,7 +253,7 @@ void BMS_EKF_StepEx(BMS_EKF_t *ekf, float current_A, float voltage_meas_V, float
     if (ekf->k > (uint32_t)ekf->diag.ibias_k0 && xu[0] >= 0.08f && xu[0] <= 0.95f) {
         if (current_A >= 0.0f) {
             ekf->innov_avg = (1.0f - ekf->diag.ibias_alpha) * ekf->innov_avg + ekf->diag.ibias_alpha * r;
-            if (ekf->innov_avg > ekf->diag.ibias_thresh) {
+            if (fabsf(ekf->innov_avg) > ekf->diag.ibias_thresh) {
                 ekf->ibias_cnt += 1u;
             } else if (ekf->ibias_cnt > 0u) {
                 ekf->ibias_cnt -= 1u;

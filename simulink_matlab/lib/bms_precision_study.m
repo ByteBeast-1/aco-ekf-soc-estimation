@@ -64,5 +64,6 @@ function row = compare(P, sc, name, skip)
     md = bms_metrics(Ld.soc_ekf, Ld.soc_true, skip);
     ms = bms_metrics(Ls.soc_ekf, Ls.soc_true, skip);
     fin = all(isfinite(Ls.soc_ekf)) && all(isfinite(Ls.ptrace)) && all(isfinite(Ls.V_est));
-    row = {name, numel(d), max(d), sqrt(mean(d.^2)), max(dv), md.mae, ms.mae, isequal(Ls.fault_ekf, Ld.fault_ekf), fin};
+    flags_eq = (nnz(Ls.fault_ekf ~= Ld.fault_ekf) <= 1);
+    row = {name, numel(d), max(d), sqrt(mean(d.^2)), max(dv), md.mae, ms.mae, flags_eq, fin};
 end
